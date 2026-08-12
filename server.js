@@ -20,7 +20,7 @@ const PRODUCT_IMAGES = [
   '/img/WhatsApp Image 2026-08-11 at 7.49.51 PM.jpeg',
   '/img/WhatsApp Image 2026-08-11 at 7.56.50 PM.jpeg'
 ];
-const ASSET_VERSION = 'premium-20260812-2';
+const ASSET_VERSION = 'premium-20260812-3';
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
@@ -209,7 +209,7 @@ function assertCsrf(req) {
 function page(req, title, body, admin = false) {
   const db = readDb();
   const cartCount = cart(req).length;
-  const nav = admin ? '' : `<header class="site-header"><div class="top-note"><span>Handmade chocolate hampers</span><span>COD available</span><span>Gift-ready packaging</span></div><nav class="nav"><a class="menu-link" href="#details" aria-label="Product details"><span></span><span></span><span></span></a><a class="brand center-brand" href="/"><img src="${esc(db.settings.logoPath)}" alt="${esc(db.settings.storeName)} logo"><strong>${esc(db.settings.storeName)}</strong><small>Artisan Chocolates</small></a><div class="nav-actions"><a href="/track">Track Order</a><a class="cart-link" href="/cart"><span>Cart</span><strong>${cartCount}</strong></a></div></nav></header>`;
+  const nav = admin ? '' : `<header class="site-header"><nav class="nav"><a class="menu-link" href="#details" aria-label="Product details"><span></span><span></span><span></span></a><a class="brand center-brand" href="/"><img src="${esc(db.settings.logoPath)}" alt="${esc(db.settings.storeName)} logo"></a><div class="nav-actions"><a href="/track">Track Order</a><a class="cart-link" href="/cart"><span>Cart</span><strong>${cartCount}</strong></a></div></nav></header>`;
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)} | ${esc(db.settings.storeName)}</title><meta name="description" content="Order the Rakhi Chocolate Hamper with custom image, extra almonds, and Cash on Delivery."><meta property="og:title" content="${esc(db.product.name)}"><meta property="og:description" content="${esc(db.product.shortDescription)}"><link rel="stylesheet" href="/assets/styles.css?v=${ASSET_VERSION}"><script defer src="/assets/app.js?v=${ASSET_VERSION}"></script></head><body>${nav}${body}</body></html>`;
 }
 
