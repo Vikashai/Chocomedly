@@ -1,0 +1,19 @@
+{
+  "name": "chocomedley-rakhi-hamper",
+  "version": "1.0.0",
+  "description": "Single-product Chocomedley Rakhi Hamper store for Hostinger Business Node hosting.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "express": "^4.19.2",
+    "express-session": "^1.18.1",
+    "multer": "^2.0.0"
+  }
+}

@@ -1,0 +1,7 @@
+config.php
+node_modules/
+data/store.json
+storage/*.sqlite
+storage/logs/*.log
+public/uploads/*
+!public/uploads/.htaccess

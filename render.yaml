@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: chocomedley-demo
+    runtime: node
+    plan: free
+    buildCommand: npm ci
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: ADMIN_SETUP_ENABLED
+        value: "true"
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: DATA_DIR
+        value: /tmp/chocomedley-data
+      - key: UPLOAD_DIR
+        value: /tmp/chocomedley-uploads
