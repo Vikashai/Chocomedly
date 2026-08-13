@@ -69,7 +69,9 @@ img { display: block; max-width: 100%; }
 
 input, textarea, select { width: 100%; min-height: 52px; border: 1px solid #e4d9ca; border-radius: 16px; padding: 14px 15px; font: inherit; background: #fff; color: var(--ink); outline: none; box-shadow: 0 10px 24px rgba(37,17,40,.04); transition: border-color .18s ease, box-shadow .18s ease; }
 input:focus, textarea:focus, select:focus { border-color: var(--gold); box-shadow: 0 0 0 4px rgba(195,147,55,.14); }
+input.is-invalid, textarea.is-invalid, select.is-invalid { border-color: var(--danger); box-shadow: 0 0 0 4px rgba(166,55,55,.12); }
 label { display: grid; gap: 8px; font-weight: 850; font-size: 14px; line-height: 1.25; }
+.field-error { min-height: 16px; color: var(--danger); font-size: 12px; font-weight: 850; }
 .qty { width: 138px; height: 44px; display: grid; grid-template-columns: 40px 58px 40px; overflow: hidden; border: 1px solid #e4d9ca; border-radius: 999px; background: #fff; box-shadow: 0 10px 22px rgba(37,17,40,.06); }
 .qty button { border: 0; background: transparent; color: var(--plum); font-size: 20px; font-weight: 950; cursor: pointer; }
 .qty input { height: 42px; padding: 0; border: 0; border-left: 1px solid #efe5d8; border-right: 1px solid #efe5d8; border-radius: 0; text-align: center; font-weight: 950; box-shadow: none; }

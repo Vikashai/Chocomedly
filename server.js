@@ -20,7 +20,7 @@ const PRODUCT_IMAGES = [
   '/img/WhatsApp Image 2026-08-11 at 7.49.51 PM.jpeg',
   '/img/WhatsApp Image 2026-08-11 at 7.56.50 PM.jpeg'
 ];
-const ASSET_VERSION = 'premium-20260813-6';
+const ASSET_VERSION = 'premium-20260813-7';
 const LOG_DIR = path.join(ROOT, 'storage', 'logs');
 const INDIA_STATES = [
   'Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh', 'Goa', 'Gujarat', 'Haryana',
@@ -447,7 +447,7 @@ app.get('/checkout', (req, res) => {
   const db = readDb();
   const totals = cartTotals(req);
   const stateOptions = INDIA_STATES.map(state => `<option value="${esc(state)}">${esc(state)}</option>`).join('');
-  const form = `<form class="panel grid pad" method="post" action="/checkout" data-once>${csrfField(req)}<h1>Checkout</h1>${flashHtml(req)}<div class="grid two"><label>Full Name<input name="customerName" required></label><label>Mobile Number<input name="mobile" pattern="[6-9][0-9]{9}" required></label></div><div class="grid two"><label>Alternate Mobile<input name="alternateMobile"></label><label>Email<input type="email" name="email"></label></div><label>Address Line 1<input name="addressLine1" required></label><label>Address Line 2<input name="addressLine2"></label><div class="grid two"><label>Landmark<input name="landmark"></label><label>PIN Code<input name="pinCode" pattern="[0-9]{6}" required></label></div><div class="grid two"><label>City<input name="city" required></label><label>State<select name="state" required><option value="">Select state or union territory</option>${stateOptions}</select></label></div><label>Order Notes<textarea name="customerNotes"></textarea></label><div class="notice"><strong>Payment:</strong> Cash on Delivery. Payment status remains Pending until collected.</div><button type="submit" class="btn primary" data-loading="Placing order...">Place COD Order</button></form>`;
+  const form = `<form class="panel grid pad" method="post" action="/checkout" data-once data-checkout-form novalidate>${csrfField(req)}<h1>Checkout</h1>${flashHtml(req)}<div class="grid two"><label>Full Name<input name="customerName" autocomplete="name" data-clean="person" data-rule="person" required><small class="field-error" data-error-for="customerName"></small></label><label>Mobile Number<input name="mobile" inputmode="numeric" autocomplete="tel" maxlength="10" data-clean="digits" data-rule="mobile" required><small class="field-error" data-error-for="mobile"></small></label></div><div class="grid two"><label>Alternate Mobile<input name="alternateMobile" inputmode="numeric" autocomplete="tel" maxlength="10" data-clean="digits" data-rule="optionalMobile"><small class="field-error" data-error-for="alternateMobile"></small></label><label>Email<input type="email" name="email" autocomplete="email" data-rule="optionalEmail"><small class="field-error" data-error-for="email"></small></label></div><label>Address Line 1<input name="addressLine1" autocomplete="address-line1" data-clean="address" data-rule="requiredText" required><small class="field-error" data-error-for="addressLine1"></small></label><label>Address Line 2<input name="addressLine2" autocomplete="address-line2" data-clean="address"></label><div class="grid two"><label>Landmark<input name="landmark" data-clean="address"></label><label>PIN Code<input name="pinCode" inputmode="numeric" autocomplete="postal-code" maxlength="6" data-clean="digits" data-rule="pin" required><small class="field-error" data-error-for="pinCode"></small></label></div><div class="grid two"><label>City<input name="city" autocomplete="address-level2" data-clean="person" data-rule="person" required><small class="field-error" data-error-for="city"></small></label><label>State<select name="state" required data-rule="requiredSelect"><option value="">Select state or union territory</option>${stateOptions}</select><small class="field-error" data-error-for="state"></small></label></div><label>Order Notes<textarea name="customerNotes" data-clean="address"></textarea></label><div class="notice"><strong>Payment:</strong> Cash on Delivery. Payment status remains Pending until collected.</div><button type="submit" class="btn primary" data-loading="Placing order...">Place COD Order</button></form>`;
   const support = `<section class="whatsapp-panel"><p class="eyebrow">Concierge support</p><h2>Need help before placing the order?</h2><p>Chat with Chocomedley on WhatsApp for image guidance, gifting notes, delivery questions, or bulk orders.</p>${whatsappCta(db.settings, 'Continue on WhatsApp', 'Hi Chocomedley, I am at checkout and need help with my hamper order.', 'wide')}</section>`;
   res.send(page(req, 'Checkout', `<main class="container page-grid">${form}<aside class="panel pad checkout-side"><h2>Total</h2>${summary(totals)}${support}</aside></main>`));
 });
@@ -456,10 +456,13 @@ app.post('/checkout', (req, res) => {
   const db = readDb();
   const items = cart(req);
   if (!items.length) return res.redirect('/');
+  const nameOk = /^[A-Za-z][A-Za-z ]{1,59}$/.test(String(req.body.customerName || '').trim());
   const mobileOk = /^[6-9]\d{9}$/.test(req.body.mobile || '');
+  const alternateOk = !req.body.alternateMobile || /^[6-9]\d{9}$/.test(req.body.alternateMobile || '');
   const pinOk = /^\d{6}$/.test(req.body.pinCode || '');
-  if (!req.body.customerName || !req.body.addressLine1 || !req.body.city || !req.body.state || !mobileOk || !pinOk) {
-    flash(req, 'error', 'Please enter valid delivery details, mobile number, and PIN code.');
+  const cityOk = /^[A-Za-z][A-Za-z ]{1,59}$/.test(String(req.body.city || '').trim());
+  if (!nameOk || !req.body.addressLine1 || !cityOk || !req.body.state || !mobileOk || !alternateOk || !pinOk) {
+    flash(req, 'error', 'Please enter a valid name, mobile number, address, city, state, and PIN code.');
     return res.redirect('/checkout');
   }
   const subtotal = items.reduce((sum, item) => sum + item.lineTotal, 0);
@@ -468,9 +471,9 @@ app.post('/checkout', (req, res) => {
   const now = new Date().toISOString();
   const order = {
     id: crypto.randomUUID(), orderId, createdAt: now, updatedAt: now,
-    customerName: req.body.customerName.trim(), mobile: req.body.mobile.trim(), alternateMobile: req.body.alternateMobile || '', email: req.body.email || '',
-    addressLine1: req.body.addressLine1.trim(), addressLine2: req.body.addressLine2 || '', landmark: req.body.landmark || '', city: req.body.city.trim(), state: req.body.state.trim(), pinCode: req.body.pinCode.trim(),
-    customerNotes: req.body.customerNotes || '', adminNotes: '', paymentMethod: 'Cash on Delivery', paymentStatus: 'Pending', orderStatus: 'New Order',
+    customerName: cleanPlainText(req.body.customerName), mobile: req.body.mobile.trim(), alternateMobile: req.body.alternateMobile || '', email: req.body.email || '',
+    addressLine1: cleanPlainText(req.body.addressLine1), addressLine2: cleanPlainText(req.body.addressLine2), landmark: cleanPlainText(req.body.landmark), city: cleanPlainText(req.body.city), state: req.body.state.trim(), pinCode: req.body.pinCode.trim(),
+    customerNotes: cleanPlainText(req.body.customerNotes), adminNotes: '', paymentMethod: 'Cash on Delivery', paymentStatus: 'Pending', orderStatus: 'New Order',
     courier: '', trackingNumber: '', trackingUrl: '', shippingDate: '', estimatedDeliveryDate: '',
     items: JSON.parse(JSON.stringify(items)), subtotal, shippingAmount: ship, total: subtotal + ship,
     statusHistory: [{ status: 'New Order', at: now }]
