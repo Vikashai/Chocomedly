@@ -448,7 +448,7 @@ function seed() {
       faq: 'Can I upload my own image?|Yes. Upload a clear JPG, PNG, or WEBP image while customizing the hamper.\nCan I add a name or message?|Yes. Use the name and message fields in the customization panel.\nIs Cash on Delivery available?|Yes, COD is available for eligible orders.\nWill the price update automatically?|Yes. Quantity and paid customizations update the total instantly, and the server recalculates it again during checkout.'
     },
     options: [
-      { id: 1, title: 'Add Custom Image', description: 'Upload a photo to personalize your hamper.', type: 'file', choices: [], price: 100, required: false, active: true, uploadRequired: true, order: 10 },
+      { id: 1, title: 'Add Custom Image', description: 'Upload a photo to personalize your hamper.', type: 'file', choices: [], price: 100, required: false, active: true, uploadRequired: false, order: 10 },
       { id: 2, title: 'Extra Almonds', description: 'Add a generous almond topping to the hamper.', type: 'checkbox', choices: [], price: 80, required: false, active: true, uploadRequired: false, order: 20 },
       { id: 4, title: 'Gift Message', description: 'Write a small note for the recipient.', type: 'textarea', choices: [], price: 0, required: false, active: true, uploadRequired: false, order: 40, maxLength: 250, placeholder: 'Your message' }
     ],
@@ -686,6 +686,13 @@ function readDb() {
     }
   };
   ensureOption({ id: 4, title: 'Gift Message', description: 'Write a small note for the recipient.', type: 'textarea', choices: [], price: 0, required: false, active: true, uploadRequired: false, order: 40, maxLength: 250, placeholder: 'Your message' });
+  for (const option of data.options || []) {
+    if (option.type === 'file' && /custom image|photo|image/i.test(option.title || '') && (option.required || option.uploadRequired)) {
+      option.required = false;
+      option.uploadRequired = false;
+      changed = true;
+    }
+  }
   const beforeOptionCount = data.options.length;
   data.options = data.options.filter(option => option.title !== 'Name to Print');
   if (data.options.length !== beforeOptionCount) changed = true;
