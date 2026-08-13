@@ -60,6 +60,8 @@ img { display: block; max-width: 100%; }
 .price-strip { margin: 18px 0 8px; display: flex; align-items: baseline; gap: 12px; }
 .price-strip strong { color: var(--gold); font-size: 30px; }
 .price-strip small { color: var(--muted); font-weight: 800; }
+.price-strip del { color: var(--muted); font-size: 18px; font-weight: 850; }
+.price-strip.has-offer small { color: var(--gold); }
 .config-stack { display: grid; gap: 16px; margin-top: 18px; }
 .config-option { padding: 0; border: 0; }
 .config-head { display: flex; justify-content: space-between; gap: 12px; align-items: end; margin-bottom: 9px; }
