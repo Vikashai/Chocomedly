@@ -218,13 +218,18 @@ label { display: grid; gap: 8px; font-weight: 850; font-size: 14px; line-height:
 .inline-check { width: auto; display: inline-flex; grid-auto-flow: column; align-items: center; gap: 7px; white-space: nowrap; font-size: 13px; color: var(--muted); }
 .inline-check input { width: auto; box-shadow: none; }
 .status-pill { display: inline-flex; align-items: center; min-height: 32px; padding: 6px 10px; border-radius: 999px; background: #fff4db; color: var(--plum); font-size: 12px; font-weight: 950; white-space: nowrap; }
+.design-summary { width: 210px; display: grid; grid-template-columns: 58px minmax(0, 1fr); gap: 10px; align-items: center; }
+.design-summary img { width: 58px; height: 52px; object-fit: cover; border-radius: 12px; border: 1px solid var(--line); background: #fff; box-shadow: 0 8px 18px rgba(37,17,40,.08); }
+.design-summary strong, .design-summary small { display: block; overflow: hidden; text-overflow: ellipsis; }
+.design-summary strong { color: var(--plum); font-size: 13px; white-space: nowrap; }
+.design-summary small { color: var(--muted); font-size: 11px; line-height: 1.25; white-space: normal; }
 .design-grid { display: flex; flex-wrap: wrap; gap: 10px; align-items: start; min-width: 0; }
-.design-grid.compact { max-width: 260px; }
+.design-grid.compact { max-width: 220px; max-height: 90px; overflow: hidden; }
 .design-card { width: 82px; display: grid; gap: 5px; }
 .design-thumb { display: grid; gap: 5px; color: var(--plum); font-size: 12px; font-weight: 950; text-align: center; }
 .design-thumb img { width: 82px; height: 68px; object-fit: cover; border-radius: 12px; border: 1px solid var(--line); background: #fff; box-shadow: 0 8px 18px rgba(37,17,40,.08); }
 .design-download { min-height: 28px; display: grid; place-items: center; padding: 5px 7px; border-radius: 999px; background: #fff4db; color: var(--plum); font-size: 11px; font-weight: 950; }
-.design-grid.full { gap: 14px; margin: 10px 0 18px; }
+.design-grid.full { max-height: 460px; overflow-y: auto; gap: 14px; margin: 10px 0 18px; padding: 8px; border: 1px solid var(--line); border-radius: 18px; background: #fffdf9; }
 .design-grid.full .design-card { width: 148px; padding: 8px; border: 1px solid var(--line); border-radius: 16px; background: #fffaf3; }
 .design-grid.full .design-thumb img { width: 130px; height: 112px; }
 .admin-image-tools { display: grid; gap: 12px; padding: 16px; border: 1px solid var(--line); border-radius: 18px; background: #fffaf3; }

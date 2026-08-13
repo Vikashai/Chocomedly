@@ -680,6 +680,11 @@ function uploadDownloadPath(uploadedPath = '') {
 function orderUploadPreview(order, compact = true) {
   const uploads = orderUploads(order);
   if (!uploads.length) return '<span class="muted">No image</span>';
+  if (compact) {
+    const first = uploads[0];
+    const count = uploads.length;
+    return `<div class="design-summary"><img loading="lazy" decoding="async" src="${esc(first.uploadedPath)}" alt="Uploaded design preview"><div><strong>${count} design${count === 1 ? '' : 's'}</strong><small>Open order to view and download</small></div></div>`;
+  }
   return `<div class="design-grid ${compact ? 'compact' : 'full'}">${uploads.map((upload, index) => {
     const label = `Design ${index + 1}`;
     const original = upload.originalName || upload.value || label;
