@@ -444,7 +444,7 @@ function mysqlConfig() {
     database: resolved.DB_NAME,
     waitForConnections: true,
     connectionLimit: Number(process.env.DB_CONNECTION_LIMIT || 5),
-    connectTimeout: 15000,
+    connectTimeout: 5000,
     charset: 'utf8mb4'
   };
 }
@@ -873,6 +873,10 @@ app.post('/buy-now', upload.any(), (req, res) => {
   catch (e) { flash(req, 'error', e.message); res.redirect('/'); }
 });
 
+app.get('/buy-now', (req, res) => {
+  res.redirect(cart(req).length ? '/checkout' : '/');
+});
+
 app.get('/cart', (req, res) => {
   const totals = cartTotals(req);
   const lines = cart(req).map(item => `<form class="cart-line" method="post" action="/cart/update">${csrfField(req)}<input type="hidden" name="key" value="${esc(item.key)}"><img src="${esc(item.productImage)}" alt="${esc(item.productName)}"><div class="cart-line-body"><h3>${esc(item.productName)}</h3>${item.customizations.map(c => `<p class="muted"><span class="info-label">${esc(c.title)}:</span> ${esc(c.value)} (+${money(c.price)})</p>`).join('')}<span class="cart-qty-label">Quantity</span><div class="cart-qty-control" aria-label="Quantity controls"><button type="submit" name="qtyDelta" value="-1" aria-label="Decrease quantity">-</button><input name="quantity" value="${item.quantity}" readonly aria-label="Quantity"><button type="submit" name="qtyDelta" value="1" aria-label="Increase quantity">+</button></div><div class="cart-actions"><button type="submit" class="btn danger" name="remove" value="1">Remove</button></div></div><strong class="cart-line-price">${money(item.lineTotal)}</strong></form>`).join('');
@@ -1214,6 +1218,17 @@ app.post('/admin/settings', requireAdmin, async (req, res) => {
 
 app.get('/robots.txt', (_, res) => res.type('text/plain').send('User-agent: *\nAllow: /\nSitemap: /sitemap.xml\n'));
 app.get('/sitemap.xml', (_, res) => res.type('application/xml').send('<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>/</loc></url><url><loc>/track</loc></url></urlset>'));
+
+app.use((error, req, res, next) => {
+  if (res.headersSent) return next(error);
+  console.error(`[request] ${req.method} ${req.originalUrl} failed:`, error);
+  const message = error?.code === 'LIMIT_FILE_SIZE'
+    ? 'One of the uploaded images is too large. Please upload images under 5 MB.'
+    : 'Something went wrong. Please try again.';
+  if (req.session) flash(req, 'error', message);
+  if (req.method === 'POST') return res.redirect(req.get('referer') || '/');
+  res.status(500).send(page(req, 'Something Went Wrong', `<main class="container"><section class="panel pad"><h1>Something went wrong</h1><p class="lead">${esc(message)}</p><a class="btn primary" href="/">Back to product</a></section></main>`));
+});
 
 app.use((req, res) => res.status(404).send(page(req, 'Page Not Found', '<main class="container"><section class="panel pad"><h1>Page not found</h1><a class="btn primary" href="/">Back home</a></section></main>')));
 
