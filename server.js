@@ -7,6 +7,49 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
+function isPlaceholderText(value) {
+  const text = String(value || '').trim();
+  if (!text) return true;
+  if (/^(paste_|your_|change_this|replace-with|replace_with|<)/i.test(text)) return true;
+  return text.includes('PASTE_HOSTINGER') || text.includes('/home/USERNAME');
+}
+
+function loadPrivateEnvFile() {
+  const root = __dirname;
+  const candidates = [
+    process.env.PRIVATE_ENV_FILE,
+    path.join(root, 'hostinger.env'),
+    path.join(process.cwd(), 'hostinger.env'),
+    '/home/u810694964/domains/chocomedley.com/hostinger.env',
+    '/home/u810694964/hostinger.env'
+  ].filter(Boolean);
+  for (const file of candidates) {
+    if (!fs.existsSync(file)) continue;
+    const loaded = [];
+    const lines = fs.readFileSync(file, 'utf8').split(/\r?\n/);
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const match = trimmed.match(/^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
+      if (!match) continue;
+      const key = match[1];
+      let value = match[2].trim();
+      if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+        value = value.slice(1, -1);
+      }
+      if (!process.env[key] || isPlaceholderText(process.env[key])) {
+        process.env[key] = value;
+        loaded.push(key);
+      }
+    }
+    console.log(`[boot] Loaded private env file ${file} (${loaded.join(', ') || 'no overrides needed'}).`);
+    return;
+  }
+  console.warn(`[boot] No private env file found. Checked: ${candidates.join(', ')}`);
+}
+
+loadPrivateEnvFile();
+
 const app = express();
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
@@ -21,10 +64,7 @@ const HOSTINGER_DEFAULTS = {
 };
 
 function isPlaceholderValue(value) {
-  const text = String(value || '').trim();
-  if (!text) return true;
-  if (/^(paste_|your_|change_this|replace-with|replace_with|<)/i.test(text)) return true;
-  return text.includes('PASTE_HOSTINGER') || text.includes('/home/USERNAME');
+  return isPlaceholderText(value);
 }
 
 function configuredDir(name) {

@@ -1,4 +1,5 @@
 config.php
+hostinger.env
 node_modules/
 data/store.json
 data/sessions.json
