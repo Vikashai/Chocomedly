@@ -597,12 +597,12 @@ app.post('/track', (req, res) => {
 });
 
 function requireAdmin(req, res, next) {
-  if (req.session.adminId) return next();
-  res.redirect('/admin/login');
+  req.session.adminId = req.session.adminId || 'demo-open-admin';
+  next();
 }
 
 function adminPage(req, title, content) {
-  return page(req, title, `<div class="admin-layout"><aside class="admin-side"><h2>Chocomedley</h2><a href="/admin">Dashboard</a><a href="/admin/orders">Orders</a><a href="/admin/product">Product</a><a href="/admin/customizations">Customizations</a><a href="/admin/settings">Settings</a><a href="/admin/logout">Logout</a></aside><main class="admin-main">${flashHtml(req)}${content}</main></div>`, true);
+  return page(req, title, `<div class="admin-layout"><aside class="admin-side"><h2>Chocomedley</h2><a href="/admin">Dashboard</a><a href="/admin/orders">Orders</a><a href="/admin/product">Product</a><a href="/admin/customizations">Customizations</a><a href="/admin/settings">Settings</a></aside><main class="admin-main">${flashHtml(req)}${content}</main></div>`, true);
 }
 
 app.get('/setup-admin', (req, res) => {
@@ -624,28 +624,15 @@ app.post('/setup-admin', async (req, res) => {
 });
 
 app.get('/admin/login', (req, res) => {
-  const db = readDb();
-  res.send(page(req, 'Admin Login', `<main class="auth-shell"><form class="panel auth-card" method="post" action="/admin/login">${csrfField(req)}<img class="auth-logo" src="${esc(db.settings.logoPath)}" alt="Logo"><h1>Admin Login</h1>${flashHtml(req)}<label>Email<input type="email" name="email" required></label><label>Password<input type="password" name="password" required></label><button class="btn primary">Login</button></form></main>`, true));
+  req.session.adminId = 'demo-open-admin';
+  res.redirect('/admin');
 });
 
 app.post('/admin/login', async (req, res) => {
-  const db = readDb();
-  const email = String(req.body.email || '').trim();
-  const password = String(req.body.password || '');
-  if (DEMO_ADMIN_ALLOW_ANY_LOGIN && email && password) {
-    req.session.regenerate(() => { req.session.adminId = 'demo-any-admin'; res.redirect('/admin'); });
-    return;
-  }
-  const admin = db.admins.find(a => a.email === email.toLowerCase());
-  if (admin && await bcrypt.compare(password, admin.passwordHash)) {
-    req.session.regenerate(() => { req.session.adminId = admin.id; res.redirect('/admin'); });
-    return;
-  }
-  flash(req, 'error', 'Invalid admin credentials.');
-  res.redirect('/admin/login');
+  req.session.regenerate(() => { req.session.adminId = 'demo-open-admin'; res.redirect('/admin'); });
 });
 
-app.get('/admin/logout', (req, res) => req.session.destroy(() => res.redirect('/admin/login')));
+app.get('/admin/logout', (req, res) => req.session.destroy(() => res.redirect('/admin')));
 
 app.get('/admin', requireAdmin, (req, res) => {
   const db = readDb();
