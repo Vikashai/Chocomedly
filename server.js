@@ -131,7 +131,7 @@ const PRODUCT_IMAGES = [
   '/img/WhatsApp Image 2026-08-11 at 7.49.51 PM.jpeg',
   '/img/WhatsApp Image 2026-08-11 at 7.56.50 PM.jpeg'
 ];
-const ASSET_VERSION = 'launch-20260813-22';
+const ASSET_VERSION = 'launch-20260813-23';
 const MAX_ORDER_QUANTITY = 20;
 const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
 const DEMO_ADMIN_EMAIL = process.env.DEMO_ADMIN_EMAIL || 'admin@chocomedley.in';
