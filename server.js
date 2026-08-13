@@ -90,6 +90,9 @@ const DEMO_ADMIN_ENABLED = process.env.DEMO_ADMIN_ENABLED === 'true' || IS_RENDE
 const DEMO_ADMIN_PASSWORD = process.env.DEMO_ADMIN_PASSWORD || '';
 const DEMO_ADMIN_ALLOW_ANY_LOGIN = process.env.DEMO_ADMIN_ALLOW_ANY_LOGIN === 'true';
 const ADMIN_AUTH_DISABLED = process.env.ADMIN_AUTH_DISABLED === 'true';
+const SESSION_SECRET = !isPlaceholderValue(process.env.SESSION_SECRET)
+  ? process.env.SESSION_SECRET
+  : '';
 const INDIA_STATES = [
   'Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh', 'Goa', 'Gujarat', 'Haryana',
   'Himachal Pradesh', 'Jharkhand', 'Karnataka', 'Kerala', 'Madhya Pradesh', 'Maharashtra', 'Manipur',
@@ -142,15 +145,14 @@ app.use('/uploads', express.static(UPLOAD_DIR, {
   maxAge: process.env.NODE_ENV === 'production' ? '7d' : 0
 }));
 if (process.env.NODE_ENV === 'production' && (!process.env.SESSION_SECRET || isPlaceholderValue(process.env.SESSION_SECRET))) {
-  console.error('[boot] FATAL SESSION_SECRET is missing or still a placeholder. Set a long random SESSION_SECRET in the Hostinger environment.');
-  throw new Error('SESSION_SECRET must be set to a real value in production.');
+  console.warn('[boot] SESSION_SECRET is missing or still a placeholder. Serving diagnostics only until a real SESSION_SECRET is set in Hostinger.');
 }
 
 const storageStatus = { ready: false, driver: DB_DRIVER, error: null, attempts: 0, lastAttemptAt: null };
 
 function scrubSecrets(text) {
   let output = String(text || '');
-  for (const secret of [process.env.DB_PASSWORD, process.env.SESSION_SECRET, process.env.HEALTH_TOKEN]) {
+  for (const secret of [process.env.DB_PASSWORD, SESSION_SECRET, process.env.HEALTH_TOKEN]) {
     if (secret && secret.length > 3) output = output.split(secret).join('***');
   }
   return output;
@@ -180,6 +182,7 @@ app.get('/healthz', (req, res) => {
       dataDir: DATA_DIR,
       uploadDir: UPLOAD_DIR,
       logDir: LOG_DIR,
+      sessionSecretReady: Boolean(SESSION_SECRET),
       db: {
         host: process.env.DB_HOST || null,
         port: process.env.DB_PORT || null,
@@ -190,6 +193,11 @@ app.get('/healthz', (req, res) => {
     });
   }
   res.status(storageStatus.ready ? 200 : 503).json(body);
+});
+
+app.use((req, res, next) => {
+  if (SESSION_SECRET) return next();
+  res.status(503).type('html').send('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Chocomedley setup needed</title><style>body{font-family:system-ui,Segoe UI,sans-serif;background:#1b1210;color:#fdf6f0;display:grid;place-items:center;min-height:100vh;margin:0;padding:24px}main{max-width:620px;text-align:center;background:#2b151f;border:1px solid #e5c16b55;border-radius:18px;padding:32px}h1{font-size:1.6rem;margin-bottom:12px}p{opacity:.9;line-height:1.6}</style></head><body><main><h1>Chocomedley environment setup needed</h1><p>The app is online, but Hostinger still has a missing or placeholder SESSION_SECRET. Add a real SESSION_SECRET in Environment variables and redeploy.</p></main></body></html>');
 });
 
 app.use((req, res, next) => {
@@ -245,14 +253,16 @@ class FileSessionStore extends session.Store {
   }
 }
 
-app.use(session({
-  name: 'chocomedley.sid',
-  store: new FileSessionStore(path.join(DATA_DIR, 'sessions.json')),
-  secret: process.env.SESSION_SECRET || 'change-this-before-production',
-  resave: false,
-  saveUninitialized: false,
-  cookie: { httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production' ? 'auto' : false, maxAge: 1000 * 60 * 60 * 8 }
-}));
+if (SESSION_SECRET) {
+  app.use(session({
+    name: 'chocomedley.sid',
+    store: new FileSessionStore(path.join(DATA_DIR, 'sessions.json')),
+    secret: SESSION_SECRET,
+    resave: false,
+    saveUninitialized: false,
+    cookie: { httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production' ? 'auto' : false, maxAge: 1000 * 60 * 60 * 8 }
+  }));
+}
 
 const upload = multer({
   storage: multer.diskStorage({
