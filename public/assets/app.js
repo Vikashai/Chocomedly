@@ -3,6 +3,7 @@ const money = value => `₹${Number(value || 0).toLocaleString('en-IN')}`;
 function initProduct() {
   const form = document.querySelector('[data-product-form]');
   if (!form) return;
+  const maxQuantity = 99;
   const base = Number(form.dataset.basePrice);
   const shipping = Number(form.dataset.shipping);
   const qtyInput = form.querySelector('[name="quantity"]');
@@ -22,7 +23,7 @@ function initProduct() {
   }
 
   function recalc() {
-    const qty = Math.max(1, Number(qtyInput.value || 1));
+    const qty = Math.max(1, Math.min(maxQuantity, Number(qtyInput.value || 1)));
     qtyInput.value = qty;
     const options = selectedOptions();
     const perUnit = base + options.reduce((sum, item) => sum + item.price, 0);
@@ -57,7 +58,7 @@ function initProduct() {
     update();
   });
   document.querySelectorAll('[data-qty]').forEach(btn => btn.addEventListener('click', () => {
-    qtyInput.value = Math.max(1, Number(qtyInput.value || 1) + Number(btn.dataset.qty));
+    qtyInput.value = Math.max(1, Math.min(maxQuantity, Number(qtyInput.value || 1) + Number(btn.dataset.qty)));
     recalc();
   }));
   document.querySelectorAll('[data-thumb]').forEach(btn => btn.addEventListener('click', () => {
