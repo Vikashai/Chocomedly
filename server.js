@@ -4,17 +4,64 @@ const multer = require('multer');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 const app = express();
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
-const PORT = process.env.PORT || 3000;
+const PORT = Number(process.env.PORT) || 3000;
 const ROOT = __dirname;
-const DATA_DIR = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(ROOT, 'data');
-const UPLOAD_DIR = process.env.UPLOAD_DIR ? path.resolve(process.env.UPLOAD_DIR) : path.join(ROOT, 'public', 'uploads');
-const DB_FILE = path.join(DATA_DIR, 'store.json');
 const DB_DRIVER = String(process.env.DB_DRIVER || 'json').toLowerCase();
+
+function isPlaceholderValue(value) {
+  const text = String(value || '').trim();
+  if (!text) return true;
+  if (/^(paste_|your_|change_this|replace-with|replace_with|<)/i.test(text)) return true;
+  return text.includes('PASTE_HOSTINGER') || text.includes('/home/USERNAME');
+}
+
+function configuredDir(name) {
+  const value = process.env[name];
+  if (!value || isPlaceholderValue(value)) {
+    if (value) console.warn(`[boot] ${name} looks like a placeholder ("${value}"); ignoring it.`);
+    return '';
+  }
+  return path.resolve(value);
+}
+
+function ensureWritableDir(label, candidates) {
+  const attempts = [];
+  for (const candidate of candidates.filter(Boolean)) {
+    try {
+      fs.mkdirSync(candidate, { recursive: true });
+      fs.accessSync(candidate, fs.constants.W_OK);
+      if (attempts.length) console.warn(`[boot] ${label}: using fallback ${candidate} because ${attempts.join('; ')}`);
+      return candidate;
+    } catch (error) {
+      attempts.push(`${candidate} failed (${error.code || error.message})`);
+    }
+  }
+  console.error(`[boot] FATAL ${label}: no writable directory found. ${attempts.join('; ')}`);
+  throw new Error(`${label} has no writable directory. ${attempts.join('; ')}`);
+}
+
+const DATA_DIR = ensureWritableDir('DATA_DIR', [
+  configuredDir('DATA_DIR'),
+  path.join(ROOT, 'data'),
+  path.join(os.tmpdir(), 'chocomedley-runtime')
+]);
+const UPLOAD_DIR = ensureWritableDir('UPLOAD_DIR', [
+  configuredDir('UPLOAD_DIR'),
+  path.join(ROOT, 'public', 'uploads'),
+  path.join(os.tmpdir(), 'chocomedley-uploads')
+]);
+const LOG_DIR = ensureWritableDir('LOG_DIR', [
+  path.join(DATA_DIR, 'logs'),
+  path.join(ROOT, 'storage', 'logs'),
+  path.join(os.tmpdir(), 'chocomedley-logs')
+]);
+const DB_FILE = path.join(DATA_DIR, 'store.json');
 const PRODUCT_IMAGES = [
   '/img/WhatsApp Image 2026-08-11 at 7.32.16 PM.jpeg',
   '/img/WhatsApp Image 2026-08-11 at 7.36.53 PM.jpeg',
@@ -22,7 +69,6 @@ const PRODUCT_IMAGES = [
   '/img/WhatsApp Image 2026-08-11 at 7.56.50 PM.jpeg'
 ];
 const ASSET_VERSION = 'premium-20260813-17';
-const LOG_DIR = path.join(ROOT, 'storage', 'logs');
 const DEMO_ADMIN_EMAIL = process.env.DEMO_ADMIN_EMAIL || 'admin@chocomedley.in';
 const IS_RENDER = Boolean(process.env.RENDER || process.env.RENDER_EXTERNAL_URL || process.env.RENDER_SERVICE_ID);
 const DEMO_ADMIN_ENABLED = process.env.DEMO_ADMIN_ENABLED === 'true' || IS_RENDER || process.env.NODE_ENV !== 'production';
@@ -38,9 +84,31 @@ const INDIA_STATES = [
   'Lakshadweep', 'Puducherry'
 ];
 
-fs.mkdirSync(DATA_DIR, { recursive: true });
-fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-fs.mkdirSync(LOG_DIR, { recursive: true });
+console.log('[boot] Chocomedley starting', JSON.stringify({
+  node: process.version,
+  env: process.env.NODE_ENV || '(unset)',
+  port: PORT,
+  cwd: process.cwd(),
+  root: ROOT,
+  dbDriver: DB_DRIVER,
+  dbHost: process.env.DB_HOST || '(unset)',
+  dbPort: process.env.DB_PORT || '(unset)',
+  dbUser: process.env.DB_USER || '(unset)',
+  dbName: process.env.DB_NAME || '(unset)',
+  dbPasswordSet: Boolean(process.env.DB_PASSWORD),
+  sessionSecretSet: Boolean(process.env.SESSION_SECRET),
+  dataDir: DATA_DIR,
+  uploadDir: UPLOAD_DIR,
+  logDir: LOG_DIR
+}));
+
+process.on('uncaughtException', error => {
+  console.error('[fatal] uncaughtException:', error);
+  process.exit(1);
+});
+process.on('unhandledRejection', reason => {
+  console.error('[fatal] unhandledRejection:', reason);
+});
 
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
@@ -58,9 +126,61 @@ app.use(express.static(path.join(ROOT, 'public'), {
 app.use('/uploads', express.static(UPLOAD_DIR, {
   maxAge: process.env.NODE_ENV === 'production' ? '7d' : 0
 }));
-if (process.env.NODE_ENV === 'production' && !process.env.SESSION_SECRET) {
-  throw new Error('SESSION_SECRET must be set in production.');
+if (process.env.NODE_ENV === 'production' && (!process.env.SESSION_SECRET || isPlaceholderValue(process.env.SESSION_SECRET))) {
+  console.error('[boot] FATAL SESSION_SECRET is missing or still a placeholder. Set a long random SESSION_SECRET in the Hostinger environment.');
+  throw new Error('SESSION_SECRET must be set to a real value in production.');
 }
+
+const storageStatus = { ready: false, driver: DB_DRIVER, error: null, attempts: 0, lastAttemptAt: null };
+
+function scrubSecrets(text) {
+  let output = String(text || '');
+  for (const secret of [process.env.DB_PASSWORD, process.env.SESSION_SECRET, process.env.HEALTH_TOKEN]) {
+    if (secret && secret.length > 3) output = output.split(secret).join('***');
+  }
+  return output;
+}
+
+function healthDetailAllowed(req) {
+  const token = process.env.HEALTH_TOKEN;
+  return Boolean(token) && String(req.query.token || '') === token;
+}
+
+app.get('/healthz', (req, res) => {
+  const detailed = healthDetailAllowed(req);
+  const body = {
+    status: storageStatus.ready ? 'ok' : 'degraded',
+    driver: storageStatus.driver,
+    node: process.version,
+    uptimeSeconds: Math.round(process.uptime()),
+    storageAttempts: storageStatus.attempts
+  };
+  if (storageStatus.error) {
+    body.errorCode = storageStatus.error.code || 'STORAGE_INIT_FAILED';
+    if (detailed) body.errorMessage = scrubSecrets(storageStatus.error.message);
+  }
+  if (detailed) {
+    Object.assign(body, {
+      port: PORT,
+      dataDir: DATA_DIR,
+      uploadDir: UPLOAD_DIR,
+      logDir: LOG_DIR,
+      db: {
+        host: process.env.DB_HOST || null,
+        port: process.env.DB_PORT || null,
+        user: process.env.DB_USER || null,
+        name: process.env.DB_NAME || null,
+        passwordSet: Boolean(process.env.DB_PASSWORD)
+      }
+    });
+  }
+  res.status(storageStatus.ready ? 200 : 503).json(body);
+});
+
+app.use((req, res, next) => {
+  if (storageStatus.ready) return next();
+  res.status(503).type('html').send('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Chocomedley is starting up</title><style>body{font-family:system-ui,Segoe UI,sans-serif;background:#1b1210;color:#fdf6f0;display:grid;place-items:center;min-height:100vh;margin:0;padding:24px}main{max-width:520px;text-align:center}h1{font-size:1.6rem;margin-bottom:12px}p{opacity:.85;line-height:1.6}</style></head><body><main><h1>Chocomedley is getting ready</h1><p>Our store is finishing its setup and will be back in a few minutes. Please try again shortly.</p></main></body></html>');
+});
 
 class FileSessionStore extends session.Store {
   constructor(file) {
@@ -224,30 +344,64 @@ function ensureDemoAdmin(data) {
 let mysqlPool = null;
 let dbCache = null;
 
+function mysqlConfig() {
+  const missing = ['DB_HOST', 'DB_USER', 'DB_PASSWORD', 'DB_NAME'].filter(key => isPlaceholderValue(process.env[key]));
+  if (missing.length) {
+    throw new Error(`DB_DRIVER=mysql but these environment variables are missing or still placeholders: ${missing.join(', ')}`);
+  }
+  let host = String(process.env.DB_HOST).trim();
+  if (host === 'localhost') {
+    host = '127.0.0.1';
+    console.warn('[boot] DB_HOST=localhost resolves to ::1 on this host; connecting to 127.0.0.1 instead.');
+  }
+  return {
+    host,
+    port: Number(process.env.DB_PORT || 3306),
+    user: String(process.env.DB_USER).trim(),
+    password: process.env.DB_PASSWORD,
+    database: String(process.env.DB_NAME).trim(),
+    waitForConnections: true,
+    connectionLimit: Number(process.env.DB_CONNECTION_LIMIT || 5),
+    connectTimeout: 15000,
+    charset: 'utf8mb4'
+  };
+}
+
+async function initMysqlStorage() {
+  const mysql = require('mysql2/promise');
+  const config = mysqlConfig();
+  console.log(`[boot] Connecting to MySQL ${config.user}@${config.host}:${config.port}/${config.database}`);
+  mysqlPool = mysql.createPool(config);
+  await mysqlPool.query('CREATE TABLE IF NOT EXISTS app_state (state_key VARCHAR(64) PRIMARY KEY, state_json LONGTEXT NOT NULL, updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
+  const [rows] = await mysqlPool.query('SELECT state_json FROM app_state WHERE state_key = ?', ['store']);
+  if (rows[0]?.state_json) {
+    dbCache = JSON.parse(rows[0].state_json);
+    console.log('[boot] Loaded existing store state from MySQL.');
+  } else {
+    dbCache = fs.existsSync(DB_FILE) ? JSON.parse(fs.readFileSync(DB_FILE, 'utf8')) : seed();
+    await writeStoredDb(dbCache);
+    console.log('[boot] Seeded store state into MySQL.');
+  }
+}
+
 async function initStorage() {
   if (DB_DRIVER === 'mysql') {
-    const mysql = require('mysql2/promise');
-    mysqlPool = mysql.createPool({
-      host: process.env.DB_HOST,
-      port: Number(process.env.DB_PORT || 3306),
-      user: process.env.DB_USER,
-      password: process.env.DB_PASSWORD,
-      database: process.env.DB_NAME,
-      waitForConnections: true,
-      connectionLimit: Number(process.env.DB_CONNECTION_LIMIT || 5),
-      charset: 'utf8mb4'
-    });
-    await mysqlPool.query('CREATE TABLE IF NOT EXISTS app_state (state_key VARCHAR(64) PRIMARY KEY, state_json LONGTEXT NOT NULL, updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
-    const [rows] = await mysqlPool.query('SELECT state_json FROM app_state WHERE state_key = ?', ['store']);
-    if (rows[0]?.state_json) {
-      dbCache = JSON.parse(rows[0].state_json);
-    } else {
-      dbCache = fs.existsSync(DB_FILE) ? JSON.parse(fs.readFileSync(DB_FILE, 'utf8')) : seed();
-      await writeStoredDb(dbCache);
+    try {
+      await initMysqlStorage();
+    } catch (error) {
+      if (mysqlPool) {
+        const pool = mysqlPool;
+        mysqlPool = null;
+        await pool.end().catch(() => {});
+      }
+      throw error;
     }
     return;
   }
-  if (DB_DRIVER !== 'json') throw new Error('DB_DRIVER must be mysql or json.');
+  if (DB_DRIVER !== 'json') throw new Error(`DB_DRIVER must be "mysql" or "json" (received "${DB_DRIVER}").`);
+  if (process.env.NODE_ENV === 'production') {
+    console.warn('[boot] WARNING: NODE_ENV=production with DB_DRIVER=json. Live customer data belongs in MySQL — set DB_DRIVER=mysql.');
+  }
   dbCache = fs.existsSync(DB_FILE) ? JSON.parse(fs.readFileSync(DB_FILE, 'utf8')) : seed();
   if (!fs.existsSync(DB_FILE)) await writeStoredDb(dbCache);
 }
@@ -460,9 +614,16 @@ function appendEmailOutbox(order, previousStatus, nextStatus) {
     to: event.to,
     status: nextStatus,
     result: event.to ? 'queued' : 'skipped',
-    message: event.to ? 'Email notification queued in storage/logs/email-outbox.jsonl.' : 'Customer email missing.'
+    message: event.to ? 'Email notification queued in the email-outbox.jsonl log.' : 'Customer email missing.'
   });
-  if (event.to) fs.appendFileSync(path.join(LOG_DIR, 'email-outbox.jsonl'), `${JSON.stringify(event)}\n`);
+  if (event.to) {
+    try {
+      fs.appendFileSync(path.join(LOG_DIR, 'email-outbox.jsonl'), `${JSON.stringify(event)}\n`);
+    } catch (error) {
+      console.error('[warn] Could not write email outbox log:', error.code || error.message);
+      order.emailNotifications[0].result = 'log-failed';
+    }
+  }
   return order.emailNotifications[0];
 }
 
@@ -946,13 +1107,51 @@ app.get('/sitemap.xml', (_, res) => res.type('application/xml').send('<?xml vers
 
 app.use((req, res) => res.status(404).send(page(req, 'Page Not Found', '<main class="container"><section class="panel pad"><h1>Page not found</h1><a class="btn primary" href="/">Back home</a></section></main>')));
 
-initStorage()
-  .then(() => {
-    app.listen(PORT, () => {
-      console.log(`Chocomedley running at http://localhost:${PORT}`);
-    });
-  })
-  .catch(error => {
-    console.error('Failed to initialize production storage:', error);
+const STORAGE_RETRY_MS = 30000;
+
+async function tryInitStorage() {
+  storageStatus.attempts += 1;
+  storageStatus.lastAttemptAt = new Date().toISOString();
+  try {
+    await initStorage();
+    storageStatus.ready = true;
+    storageStatus.error = null;
+    console.log(`[boot] Storage ready (driver=${DB_DRIVER}) after attempt ${storageStatus.attempts}.`);
+    return true;
+  } catch (error) {
+    storageStatus.ready = false;
+    storageStatus.error = error;
+    console.error(`[boot] Storage init FAILED (attempt ${storageStatus.attempts}, driver=${DB_DRIVER}, code=${error.code || 'none'}): ${scrubSecrets(error.message)}`);
+    return false;
+  }
+}
+
+async function start() {
+  const ready = await tryInitStorage();
+  const server = app.listen(PORT, () => {
+    console.log(`[boot] HTTP server listening on port ${PORT}${ready ? '' : ' in DEGRADED mode (storage unavailable, serving maintenance page)'}`);
+  });
+  server.on('error', error => {
+    console.error('[fatal] HTTP server error:', error);
     process.exit(1);
   });
+  if (!ready) {
+    const retry = setInterval(async () => {
+      if (storageStatus.ready) return clearInterval(retry);
+      console.log('[boot] Retrying storage init...');
+      if (await tryInitStorage()) {
+        clearInterval(retry);
+        console.log('[boot] Storage recovered; serving normally.');
+      }
+    }, STORAGE_RETRY_MS);
+    retry.unref();
+  }
+  for (const signal of ['SIGTERM', 'SIGINT']) {
+    process.on(signal, () => {
+      console.log(`[shutdown] ${signal} received; closing server.`);
+      server.close(() => process.exit(0));
+    });
+  }
+}
+
+start();

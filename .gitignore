@@ -2,6 +2,14 @@ config.php
 node_modules/
 data/store.json
 data/sessions.json
+data/logs/
 storage/logs/*.log
 public/uploads/*
 !public/uploads/.htaccess
+
+# Never commit real environment values
+.env
+*.env
+hostinger.env
+!.env.example
+!hostinger.env.example
