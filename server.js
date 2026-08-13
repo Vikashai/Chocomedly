@@ -26,6 +26,7 @@ const DEMO_ADMIN_EMAIL = process.env.DEMO_ADMIN_EMAIL || 'admin@chocomedley.in';
 const IS_RENDER = Boolean(process.env.RENDER || process.env.RENDER_EXTERNAL_URL || process.env.RENDER_SERVICE_ID);
 const DEMO_ADMIN_ENABLED = process.env.DEMO_ADMIN_ENABLED === 'true' || IS_RENDER || process.env.NODE_ENV !== 'production';
 const DEMO_ADMIN_PASSWORD = process.env.DEMO_ADMIN_PASSWORD || '';
+const DEMO_ADMIN_ALLOW_ANY_LOGIN = process.env.DEMO_ADMIN_ALLOW_ANY_LOGIN === 'true';
 const INDIA_STATES = [
   'Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh', 'Goa', 'Gujarat', 'Haryana',
   'Himachal Pradesh', 'Jharkhand', 'Karnataka', 'Kerala', 'Madhya Pradesh', 'Maharashtra', 'Manipur',
@@ -629,8 +630,14 @@ app.get('/admin/login', (req, res) => {
 
 app.post('/admin/login', async (req, res) => {
   const db = readDb();
-  const admin = db.admins.find(a => a.email === String(req.body.email || '').trim().toLowerCase());
-  if (admin && await bcrypt.compare(req.body.password || '', admin.passwordHash)) {
+  const email = String(req.body.email || '').trim();
+  const password = String(req.body.password || '');
+  if (DEMO_ADMIN_ALLOW_ANY_LOGIN && email && password) {
+    req.session.regenerate(() => { req.session.adminId = 'demo-any-admin'; res.redirect('/admin'); });
+    return;
+  }
+  const admin = db.admins.find(a => a.email === email.toLowerCase());
+  if (admin && await bcrypt.compare(password, admin.passwordHash)) {
     req.session.regenerate(() => { req.session.adminId = admin.id; res.redirect('/admin'); });
     return;
   }
