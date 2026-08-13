@@ -25,18 +25,30 @@ Open:
 
 ## Hostinger Business Deployment
 
-1. Upload the project to Hostinger.
-2. In hPanel, create a Node.js app.
+1. Push the project to the production GitHub repository.
+2. In Hostinger hPanel, create a Node.js app from that repository, or upload the project files.
 3. Set the app root to this project folder.
 4. Set startup file to `server.js`.
 5. Run `npm install`.
 6. Add environment variables:
+   - `NODE_ENV`: `production`
    - `SESSION_SECRET`: a long random secret
-   - `ADMIN_SETUP_ENABLED`: `true` for first setup
+   - `DATA_DIR`: a persistent writable folder outside auto-replaced code, for example `/home/USERNAME/chocomedley-data`
+   - `UPLOAD_DIR`: a persistent writable folder, for example `/home/USERNAME/chocomedley-uploads`
+   - `ADMIN_SETUP_ENABLED`: `true` for first setup, then `false`
    - `PORT`: Hostinger may set this automatically
 7. Start/restart the Node.js app.
 8. Visit `/setup-admin` once and create the admin account.
 9. Change `ADMIN_SETUP_ENABLED` to `false` and restart the app.
+
+Alternative admin bootstrap:
+
+- Set `DEMO_ADMIN_ENABLED=true`
+- Set `DEMO_ADMIN_EMAIL=admin@chocomedley.in`
+- Set `DEMO_ADMIN_PASSWORD=<strong password>`
+- Restart the app. The app will create or repair that admin account automatically.
+
+Do not set `ADMIN_AUTH_DISABLED=true` on production. That opens admin without login and is only for short local/demo testing.
 
 ## Data Storage
 

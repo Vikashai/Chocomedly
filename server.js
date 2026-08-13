@@ -27,6 +27,7 @@ const IS_RENDER = Boolean(process.env.RENDER || process.env.RENDER_EXTERNAL_URL 
 const DEMO_ADMIN_ENABLED = process.env.DEMO_ADMIN_ENABLED === 'true' || IS_RENDER || process.env.NODE_ENV !== 'production';
 const DEMO_ADMIN_PASSWORD = process.env.DEMO_ADMIN_PASSWORD || '';
 const DEMO_ADMIN_ALLOW_ANY_LOGIN = process.env.DEMO_ADMIN_ALLOW_ANY_LOGIN === 'true';
+const ADMIN_AUTH_DISABLED = process.env.ADMIN_AUTH_DISABLED === 'true';
 const INDIA_STATES = [
   'Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh', 'Goa', 'Gujarat', 'Haryana',
   'Himachal Pradesh', 'Jharkhand', 'Karnataka', 'Kerala', 'Madhya Pradesh', 'Maharashtra', 'Manipur',
@@ -60,8 +61,57 @@ if (process.env.NODE_ENV === 'production' && !process.env.SESSION_SECRET) {
   throw new Error('SESSION_SECRET must be set in production.');
 }
 
+class FileSessionStore extends session.Store {
+  constructor(file) {
+    super();
+    this.file = file;
+  }
+
+  readAll() {
+    try {
+      return JSON.parse(fs.readFileSync(this.file, 'utf8'));
+    } catch (_) {
+      return {};
+    }
+  }
+
+  writeAll(data) {
+    fs.writeFileSync(this.file, JSON.stringify(data, null, 2));
+  }
+
+  get(sid, cb) {
+    const sessions = this.readAll();
+    const entry = sessions[sid];
+    if (!entry) return cb(null);
+    if (entry.expires && Date.now() > entry.expires) {
+      delete sessions[sid];
+      this.writeAll(sessions);
+      return cb(null);
+    }
+    cb(null, entry.session);
+  }
+
+  set(sid, sess, cb) {
+    const sessions = this.readAll();
+    sessions[sid] = {
+      expires: sess.cookie?.expires ? new Date(sess.cookie.expires).getTime() : Date.now() + 1000 * 60 * 60 * 8,
+      session: sess
+    };
+    this.writeAll(sessions);
+    cb?.(null);
+  }
+
+  destroy(sid, cb) {
+    const sessions = this.readAll();
+    delete sessions[sid];
+    this.writeAll(sessions);
+    cb?.(null);
+  }
+}
+
 app.use(session({
   name: 'chocomedley.sid',
+  store: new FileSessionStore(path.join(DATA_DIR, 'sessions.json')),
   secret: process.env.SESSION_SECRET || 'change-this-before-production',
   resave: false,
   saveUninitialized: false,
@@ -611,12 +661,16 @@ app.post('/track', (req, res) => {
 });
 
 function requireAdmin(req, res, next) {
-  req.session.adminId = req.session.adminId || 'demo-open-admin';
-  next();
+  if (ADMIN_AUTH_DISABLED) {
+    req.session.adminId = req.session.adminId || 'auth-disabled-admin';
+    return next();
+  }
+  if (req.session.adminId) return next();
+  res.redirect('/admin/login');
 }
 
 function adminPage(req, title, content) {
-  return page(req, title, `<div class="admin-layout"><aside class="admin-side"><h2>Chocomedley</h2><a href="/admin">Dashboard</a><a href="/admin/orders">Orders</a><a href="/admin/product">Product</a><a href="/admin/customizations">Customizations</a><a href="/admin/settings">Settings</a></aside><main class="admin-main">${flashHtml(req)}${content}</main></div>`, true);
+  return page(req, title, `<div class="admin-layout"><aside class="admin-side"><h2>Chocomedley</h2><a href="/admin">Dashboard</a><a href="/admin/orders">Orders</a><a href="/admin/product">Product</a><a href="/admin/customizations">Customizations</a><a href="/admin/settings">Settings</a><a href="/admin/logout">Logout</a></aside><main class="admin-main">${flashHtml(req)}${content}</main></div>`, true);
 }
 
 app.get('/setup-admin', (req, res) => {
@@ -638,15 +692,32 @@ app.post('/setup-admin', async (req, res) => {
 });
 
 app.get('/admin/login', (req, res) => {
-  req.session.adminId = 'demo-open-admin';
-  res.redirect('/admin');
+  if (ADMIN_AUTH_DISABLED) {
+    req.session.adminId = 'auth-disabled-admin';
+    return res.redirect('/admin');
+  }
+  const db = readDb();
+  res.send(page(req, 'Admin Login', `<main class="auth-shell"><form class="panel auth-card" method="post" action="/admin/login">${csrfField(req)}<img class="auth-logo" src="${esc(db.settings.logoPath)}" alt="Logo"><h1>Admin Login</h1>${flashHtml(req)}<label>Email<input type="email" name="email" required></label><label>Password<input type="password" name="password" required></label><button class="btn primary">Login</button></form></main>`, true));
 });
 
 app.post('/admin/login', async (req, res) => {
-  req.session.regenerate(() => { req.session.adminId = 'demo-open-admin'; res.redirect('/admin'); });
+  const db = readDb();
+  const email = String(req.body.email || '').trim();
+  const password = String(req.body.password || '');
+  if (ADMIN_AUTH_DISABLED || (DEMO_ADMIN_ALLOW_ANY_LOGIN && email && password)) {
+    req.session.regenerate(() => { req.session.adminId = 'demo-any-admin'; res.redirect('/admin'); });
+    return;
+  }
+  const admin = db.admins.find(a => a.email === email.toLowerCase());
+  if (admin && await bcrypt.compare(password, admin.passwordHash)) {
+    req.session.regenerate(() => { req.session.adminId = admin.id; res.redirect('/admin'); });
+    return;
+  }
+  flash(req, 'error', 'Invalid admin credentials.');
+  res.redirect('/admin/login');
 });
 
-app.get('/admin/logout', (req, res) => req.session.destroy(() => res.redirect('/admin')));
+app.get('/admin/logout', (req, res) => req.session.destroy(() => res.redirect('/admin/login')));
 
 app.get('/admin', requireAdmin, (req, res) => {
   const db = readDb();
