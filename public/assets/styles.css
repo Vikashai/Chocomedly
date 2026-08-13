@@ -205,9 +205,11 @@ td small { display: block; margin-top: 4px; }
 th, td { text-align: left; padding: 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
 th { background: #fff2d8; color: var(--plum); font-size: 13px; }
 .auth-shell { min-height: 100vh; display: grid; place-items: center; padding: 20px; background: linear-gradient(135deg, #1d0b20, #3b193c); }
-.auth-card { width: min(472px, 100%); display: grid; gap: 18px; padding: 30px; }
-.auth-card h1 { margin: 2px 0 4px; color: var(--plum); line-height: 1.12; }
-.auth-card .btn { justify-self: start; min-width: 112px; margin-top: 2px; }
+.auth-card { width: min(472px, 100%); display: grid; gap: 22px; padding: 34px; }
+.auth-card h1 { margin: 2px 0 0; color: var(--plum); line-height: 1.12; }
+.auth-card label { gap: 11px; }
+.auth-card input { min-height: 54px; }
+.auth-card .btn { justify-self: start; min-width: 118px; margin-top: 8px; }
 .auth-logo { width: 92px; height: 92px; object-fit: cover; border-radius: 50%; margin: 0 auto 14px; }
 .mobile-bar { display: none; }
 
@@ -244,6 +246,6 @@ th { background: #fff2d8; color: var(--plum); font-size: 13px; }
   .upload-box { grid-template-columns: 1fr; text-align: center; }
   .upload-box em { padding-left: 0; }
   .auth-shell { padding: 14px; align-items: start; padding-top: 28px; }
-  .auth-card { padding: 24px; gap: 16px; }
+  .auth-card { padding: 24px; gap: 20px; }
   .auth-card h1 { font-size: 30px; }
 }
