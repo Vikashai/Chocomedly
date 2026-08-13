@@ -3,7 +3,7 @@ const money = value => `₹${Number(value || 0).toLocaleString('en-IN')}`;
 function initProduct() {
   const form = document.querySelector('[data-product-form]');
   if (!form) return;
-  const maxQuantity = 99;
+  const maxQuantity = 20;
   const base = Number(form.dataset.basePrice);
   const shipping = Number(form.dataset.shipping);
   const qtyInput = form.querySelector('[name="quantity"]');
@@ -125,6 +125,9 @@ function initProduct() {
   };
   document.querySelector('[data-gallery-prev]')?.addEventListener('click', () => shiftGallery(-1));
   document.querySelector('[data-gallery-next]')?.addEventListener('click', () => shiftGallery(1));
+  document.querySelector('[data-mobile-add]')?.addEventListener('click', () => {
+    form.querySelector('button[formaction="/cart/add"]')?.click();
+  });
   recalc();
 }
 
@@ -156,7 +159,7 @@ function setLoading(form) {
 }
 
 function fieldMessage(input) {
-  return input.closest('label')?.querySelector('.field-error') || document.querySelector(`[data-error-for="${input.name}"]`);
+  return document.querySelector(`[data-error-for="${input.name}"]`) || input.closest('label')?.querySelector('.field-error');
 }
 
 function setFieldError(input, message = '') {
@@ -166,13 +169,20 @@ function setFieldError(input, message = '') {
 }
 
 const checkoutRules = {
-  person: input => /^[A-Za-z][A-Za-z ]{1,59}$/.test(input.value.trim()) ? '' : 'Use letters only.',
+  person: input => /^[\p{L}][\p{L} ]{1,59}$/u.test(input.value.trim()) ? '' : 'Use letters only.',
   mobile: input => /^[6-9]\d{9}$/.test(input.value.trim()) ? '' : 'Enter a valid 10-digit mobile number.',
-  optionalMobile: input => !input.value.trim() || /^[6-9]\d{9}$/.test(input.value.trim()) ? '' : 'Enter a valid 10-digit mobile number.',
+  optionalMobile: input => {
+    const value = input.value.trim();
+    const main = input.form?.querySelector('[name="mobile"]')?.value.trim();
+    if (!value) return '';
+    if (!/^[6-9]\d{9}$/.test(value)) return 'Enter a valid 10-digit mobile number.';
+    return value === main ? 'Use a different alternate mobile number.' : '';
+  },
   optionalEmail: input => !input.value.trim() || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input.value.trim()) ? '' : 'Enter a valid email address.',
   requiredText: input => input.value.trim().length >= 4 ? '' : 'This field is required.',
   pin: input => /^\d{6}$/.test(input.value.trim()) ? '' : 'Enter a 6-digit PIN code.',
-  requiredSelect: input => input.value ? '' : 'Select an option.'
+  requiredSelect: input => input.value ? '' : 'Select an option.',
+  confirmation: input => input.checked ? '' : 'Confirm the order before continuing.'
 };
 
 function validateCheckoutField(input) {
@@ -204,6 +214,11 @@ function initAdminValidation() {
     phone: value => value.replace(/[^\d+\s()-]/g, ''),
     person: value => value.replace(/[^A-Za-z ]/g, '').replace(/\s{2,}/g, ' '),
     digits: value => value.replace(/\D/g, ''),
+    decimal: value => {
+      const cleaned = value.replace(/[^\d.]/g, '');
+      const [whole = '', ...fractions] = cleaned.split('.');
+      return fractions.length ? `${whole}.${fractions.join('').slice(0, 2)}` : whole;
+    },
     address: value => value.replace(/[^\p{L}\p{N}\s.,'&()/-]/gu, '').replace(/\s{2,}/g, ' ')
   };
   document.querySelectorAll('[data-clean]').forEach(input => {
@@ -230,6 +245,31 @@ function initAdminValidation() {
       setLoading(form);
     });
   });
+  document.querySelectorAll('[name="freeShippingEnabled"]').forEach(toggle => {
+    toggle.addEventListener('change', () => {
+      const threshold = toggle.form?.querySelector('[name="freeShippingMinimum"]');
+      if (threshold) refreshAdminField(threshold);
+    });
+  });
+  document.querySelectorAll('[data-option-editor]').forEach(editor => {
+    const select = editor.querySelector('[data-option-type]');
+    if (!select) return;
+    const sync = () => {
+      const type = select.value;
+      editor.querySelectorAll('[data-option-fields]').forEach(group => {
+        const visible = group.dataset.optionFields.split(/\s+/).includes(type);
+        group.hidden = !visible;
+        group.querySelectorAll('input, textarea, select').forEach(field => { field.disabled = !visible; });
+      });
+    };
+    select.addEventListener('change', sync);
+    sync();
+  });
+  document.querySelectorAll('[data-confirm]').forEach(button => {
+    button.addEventListener('click', event => {
+      if (!window.confirm(button.dataset.confirm)) event.preventDefault();
+    });
+  });
 }
 
 function initStoreActivity() {
@@ -243,23 +283,46 @@ function initStoreActivity() {
       const orders = activity.querySelector('[data-recent-orders]');
       const orderLabel = activity.querySelector('[data-order-label]');
       const visitors = activity.querySelector('[data-active-visitors]');
-      if (orders) orders.textContent = String(data.recentOrders);
+      const updateNumber = (element, nextValue) => {
+        if (!element || element.textContent === String(nextValue)) return;
+        element.classList.remove('is-updating');
+        void element.offsetWidth;
+        element.textContent = String(nextValue);
+        element.classList.add('is-updating');
+      };
+      updateNumber(orders, data.recentOrders);
       if (orderLabel) orderLabel.textContent = data.recentOrders === 1 ? 'order' : 'orders';
-      if (visitors) visitors.textContent = String(data.activeVisitors);
+      updateNumber(visitors, data.activeVisitors);
     } catch (_) {
       // Keep the server-rendered figures when the activity refresh is unavailable.
     }
   };
+  window.setTimeout(refresh, 2500);
   window.setInterval(refresh, 20000);
 }
 
 const adminRules = {
   name: input => /^[\p{L}][\p{L}\s]{1,79}$/u.test(input.value.trim()) ? '' : 'Use letters only.',
   text: input => !input.value.trim() || input.value.trim().length >= 4 ? '' : 'Enter at least 4 characters.',
-  money: input => /^\d+$/.test(input.value.trim()) ? '' : 'Use numbers only.',
-  optionalMoney: input => !input.value.trim() || /^\d+$/.test(input.value.trim()) ? offerPriceMessage(input) : 'Use numbers only.',
+  requiredText: input => input.value.trim().length >= 4 ? '' : 'Enter at least 4 characters.',
+  money: input => /^\d+(\.\d{1,2})?$/.test(input.value.trim()) ? '' : 'Use a valid amount.',
+  positiveMoney: input => /^\d+(\.\d{1,2})?$/.test(input.value.trim()) && Number(input.value) > 0 ? '' : 'Enter an amount greater than zero.',
+  optionalMoney: input => !input.value.trim() || /^\d+(\.\d{1,2})?$/.test(input.value.trim()) ? offerPriceMessage(input) : 'Use a valid amount.',
   wholeNumber: input => /^\d+$/.test(input.value.trim()) ? '' : 'Use numbers only.',
-  optionalWholeNumber: input => !input.value.trim() || /^\d+$/.test(input.value.trim()) ? '' : 'Use numbers only.'
+  optionalWholeNumber: input => !input.value.trim() || /^\d+$/.test(input.value.trim()) ? '' : 'Use numbers only.',
+  displayOrder: input => /^\d+$/.test(input.value.trim()) && Number(input.value) <= 999 ? '' : 'Use a whole number from 0 to 999.',
+  characterLimit: input => !input.value.trim() || (/^\d+$/.test(input.value.trim()) && Number(input.value) > 0 && Number(input.value) <= 1000) ? '' : 'Use a whole number from 1 to 1000.',
+  phone: input => { const count = input.value.replace(/\D/g, '').length; return count >= 10 && count <= 15 ? '' : 'Enter 10 to 15 digits.'; },
+  email: input => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input.value.trim()) ? '' : 'Enter a valid email address.',
+  imagePath: input => /^\/(img|catalog)\/[\w .()\-/%]+$/i.test(input.value.trim()) ? '' : 'Use an /img/ or /catalog/ path.',
+  imagePaths: input => input.value.trim().split(/\r?\n/).filter(Boolean).every(value => /^\/(img|catalog)\/[\w .()\-/%]+$/i.test(value.trim())) ? '' : 'Every line must use an /img/ or /catalog/ path.',
+  faq: input => input.value.trim().split(/\r?\n/).filter(Boolean).length > 0 && input.value.trim().split(/\r?\n/).filter(Boolean).every(line => { const index = line.indexOf('|'); return index >= 3 && index < line.length - 1; }) ? '' : 'Use Question|Answer on every line.',
+  choices: input => input.value.trim().split(/\r?\n/).map(value => value.trim()).filter(Boolean).filter((value, index, all) => all.indexOf(value) === index).length >= 2 ? '' : 'Add at least two unique choices.',
+  shippingThreshold: input => {
+    const enabled = input.form?.querySelector('[name="freeShippingEnabled"]')?.checked;
+    if (!enabled && !input.value.trim()) return '';
+    return /^\d+(\.\d{1,2})?$/.test(input.value.trim()) && (!enabled || Number(input.value) > 0) ? '' : 'Enter an amount greater than zero.';
+  }
 };
 
 function offerPriceMessage(input) {

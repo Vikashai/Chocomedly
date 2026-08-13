@@ -1,6 +1,11 @@
 config.php
 hostinger.env
 node_modules/
+.npm-cache/
+.qa-*/
+.qa-*.log
+.qa-*.png
+.qa-*.txt
 data/store.json
 data/sessions.json
 data/logs/
