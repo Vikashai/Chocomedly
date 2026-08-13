@@ -777,7 +777,7 @@ function optionField(opt) {
   const placeholder = opt.placeholder ? `placeholder="${esc(opt.placeholder)}"` : '';
   const isAlmonds = /almond/i.test(opt.title);
   if (opt.type === 'checkbox' && isAlmonds) {
-    control = `<div class="addon-quantity" data-addon-quantity><input type="hidden" name="${name}" value="0" data-addon-input><div><strong>Choose almond boxes</strong><small>Pick 0, 1, or any number up to your hamper quantity.</small></div><div class="mini-stepper"><button type="button" data-addon-delta="-1" aria-label="Decrease almonds">-</button><span data-addon-display>0</span><button type="button" data-addon-delta="1" aria-label="Increase almonds">+</button></div></div>`;
+    control = `<div class="addon-quantity" data-addon-quantity><input type="hidden" name="${name}" value="0" data-addon-input><div><strong>Almond boxes</strong></div><div class="mini-stepper"><button type="button" data-addon-delta="-1" aria-label="Decrease almonds">-</button><span data-addon-display>0</span><button type="button" data-addon-delta="1" aria-label="Increase almonds">+</button></div></div>`;
   } else if (opt.type === 'checkbox') {
     control = `<label class="choice-card add-on-card"><input type="checkbox" name="${name}" value="1"><span><b>Add</b><strong>${esc(opt.title)}</strong><small>${Number(opt.price) ? `+${money(opt.price)}` : 'Included'}</small></span></label>`;
   } else if (opt.type === 'file') {
