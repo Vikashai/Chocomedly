@@ -218,9 +218,15 @@ label { display: grid; gap: 8px; font-weight: 850; font-size: 14px; line-height:
 .inline-check { width: auto; display: inline-flex; grid-auto-flow: column; align-items: center; gap: 7px; white-space: nowrap; font-size: 13px; color: var(--muted); }
 .inline-check input { width: auto; box-shadow: none; }
 .status-pill { display: inline-flex; align-items: center; min-height: 32px; padding: 6px 10px; border-radius: 999px; background: #fff4db; color: var(--plum); font-size: 12px; font-weight: 950; white-space: nowrap; }
-.order-image-link { width: 74px; display: grid; gap: 5px; color: var(--plum); font-size: 12px; font-weight: 950; text-align: center; }
-.order-image-link img { width: 74px; height: 62px; object-fit: cover; border-radius: 12px; border: 1px solid var(--line); background: #fff; }
-.order-image-link small { margin-top: -22px; justify-self: end; min-width: 22px; height: 22px; display: grid; place-items: center; border-radius: 50%; background: var(--plum); color: #fff; font-size: 11px; }
+.design-grid { display: flex; flex-wrap: wrap; gap: 10px; align-items: start; min-width: 0; }
+.design-grid.compact { max-width: 260px; }
+.design-card { width: 82px; display: grid; gap: 5px; }
+.design-thumb { display: grid; gap: 5px; color: var(--plum); font-size: 12px; font-weight: 950; text-align: center; }
+.design-thumb img { width: 82px; height: 68px; object-fit: cover; border-radius: 12px; border: 1px solid var(--line); background: #fff; box-shadow: 0 8px 18px rgba(37,17,40,.08); }
+.design-download { min-height: 28px; display: grid; place-items: center; padding: 5px 7px; border-radius: 999px; background: #fff4db; color: var(--plum); font-size: 11px; font-weight: 950; }
+.design-grid.full { gap: 14px; margin: 10px 0 18px; }
+.design-grid.full .design-card { width: 148px; padding: 8px; border: 1px solid var(--line); border-radius: 16px; background: #fffaf3; }
+.design-grid.full .design-thumb img { width: 130px; height: 112px; }
 .admin-image-tools { display: grid; gap: 12px; padding: 16px; border: 1px solid var(--line); border-radius: 18px; background: #fffaf3; }
 .admin-image-preview { width: min(280px, 100%); aspect-ratio: 1.25/1; margin-top: 10px; object-fit: cover; border-radius: 14px; border: 1px solid var(--line); background: #fff; }
 .admin-gallery-preview { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }

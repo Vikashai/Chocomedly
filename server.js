@@ -667,12 +667,25 @@ function orderUploads(order) {
   return (order.items || []).flatMap(item => (item.customizations || []).filter(c => c.uploadedPath));
 }
 
+function uploadFilename(uploadedPath = '') {
+  const cleanPath = String(uploadedPath || '').split('?')[0].replaceAll('\\', '/');
+  return path.basename(cleanPath);
+}
+
+function uploadDownloadPath(uploadedPath = '') {
+  const filename = uploadFilename(uploadedPath);
+  return filename ? `/admin/uploads/${encodeURIComponent(filename)}/download` : '';
+}
+
 function orderUploadPreview(order, compact = true) {
   const uploads = orderUploads(order);
   if (!uploads.length) return '<span class="muted">No image</span>';
-  const first = uploads[0];
-  const more = uploads.length > 1 ? `<small>+${uploads.length - 1}</small>` : '';
-  return `<a class="${compact ? 'order-image-link' : 'upload-preview'}" href="${esc(first.uploadedPath)}" target="_blank" rel="noopener"><img src="${esc(first.uploadedPath)}" alt="${esc(first.title)} upload"><span>${compact ? 'View' : 'Open uploaded image'}</span>${more}</a>`;
+  return `<div class="design-grid ${compact ? 'compact' : 'full'}">${uploads.map((upload, index) => {
+    const label = `Design ${index + 1}`;
+    const original = upload.originalName || upload.value || label;
+    const download = uploadDownloadPath(upload.uploadedPath);
+    return `<article class="design-card"><a class="design-thumb" href="${esc(upload.uploadedPath)}" target="_blank" rel="noopener" title="Open ${esc(original)}"><img loading="lazy" decoding="async" src="${esc(upload.uploadedPath)}" alt="${esc(label)}"><span>View ${index + 1}</span></a><a class="design-download" href="${esc(download)}">Download</a></article>`;
+  }).join('')}</div>`;
 }
 
 function statusOptions(current) {
@@ -1051,13 +1064,26 @@ app.post('/admin/login', async (req, res) => {
 
 app.get('/admin/logout', (req, res) => req.session.destroy(() => res.redirect('/admin/login')));
 
+app.get('/admin/uploads/:filename/download', requireAdmin, (req, res) => {
+  const filename = path.basename(req.params.filename || '');
+  const uploadRoot = path.resolve(UPLOAD_DIR);
+  const filePath = path.resolve(uploadRoot, filename);
+  if (!filename || (!filePath.startsWith(`${uploadRoot}${path.sep}`) && filePath !== uploadRoot)) {
+    return res.status(400).send(adminPage(req, 'Invalid Download', '<p class="notice error">Invalid file request.</p>'));
+  }
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).send(adminPage(req, 'File Not Found', '<p class="notice error">Uploaded file not found.</p>'));
+  }
+  res.download(filePath, filename);
+});
+
 app.get('/admin', requireAdmin, (req, res) => {
   const db = readDb();
   const today = new Date().toISOString().slice(0, 10);
   const ordersToday = db.orders.filter(o => o.createdAt.slice(0, 10) === today);
   const stat = (label, value) => `<div class="panel stat"><p class="muted">${label}</p><h2>${value}</h2></div>`;
   const recentRows = db.orders.slice(0, 8).map(o => `<tr><td>${orderUploadPreview(o)}</td><td><a href="/admin/orders/${esc(o.orderId)}">${esc(o.orderId)}</a><small class="muted">${esc(o.createdAt.slice(0, 10))}</small></td><td><span class="info-label">Customer:</span> ${esc(o.customerName)}<small class="muted"><span class="info-label">Mobile:</span> ${esc(o.mobile)}</small></td><td>${money(o.total)}</td><td><span class="status-pill">${esc(o.orderStatus)}</span></td><td><form class="quick-status-form" method="post" action="/admin/orders/${esc(o.orderId)}/status">${csrfField(req)}<select name="orderStatus">${statusOptions(o.orderStatus)}</select><label class="inline-check"><input type="checkbox" name="notifyEmail" value="1" checked> Email</label><button type="submit" class="btn">Save</button></form></td></tr>`).join('') || '<tr><td colspan="6">No orders yet.</td></tr>';
-  res.send(adminPage(req, 'Dashboard', `<h1>Dashboard</h1><div class="stats">${stat('Orders Today', ordersToday.length)}${stat('Revenue Today', money(ordersToday.reduce((s, o) => s + o.total, 0)))}${stat('Total Orders', db.orders.length)}${stat('Total Revenue', money(db.orders.reduce((s, o) => s + o.total, 0)))}</div><section class="admin-section"><div class="admin-section-head"><h2>Recent Orders</h2><a class="btn ghost" href="/admin/orders">View all</a></div><table><tr><th>Image</th><th>Order</th><th>Customer</th><th>Amount</th><th>Status</th><th>Quick Update</th></tr>${recentRows}</table></section>`));
+  res.send(adminPage(req, 'Dashboard', `<h1>Dashboard</h1><div class="stats">${stat('Orders Today', ordersToday.length)}${stat('Revenue Today', money(ordersToday.reduce((s, o) => s + o.total, 0)))}${stat('Total Orders', db.orders.length)}${stat('Total Revenue', money(db.orders.reduce((s, o) => s + o.total, 0)))}</div><section class="admin-section"><div class="admin-section-head"><h2>Recent Orders</h2><a class="btn ghost" href="/admin/orders">View all</a></div><table><tr><th>Designs</th><th>Order</th><th>Customer</th><th>Amount</th><th>Status</th><th>Quick Update</th></tr>${recentRows}</table></section>`));
 });
 
 const statuses = ['New Order', 'Confirmed', 'Preparing', 'Ready to Ship', 'Shipped', 'Out for Delivery', 'Delivered', 'Cancelled'];
@@ -1067,16 +1093,16 @@ app.get('/admin/orders', requireAdmin, (req, res) => {
   const status = String(req.query.status || '');
   const orders = readDb().orders.filter(o => (!q || [o.orderId, o.customerName, o.mobile].some(v => String(v).toLowerCase().includes(q))) && (!status || o.orderStatus === status));
   const rows = orders.map(o => `<tr><td>${orderUploadPreview(o)}</td><td><a href="/admin/orders/${esc(o.orderId)}">${esc(o.orderId)}</a></td><td>${esc(o.createdAt.slice(0, 10))}</td><td><span class="info-label">Customer:</span> ${esc(o.customerName)}</td><td><span class="info-label">Mobile:</span> ${esc(o.mobile)}</td><td>${money(o.total)}</td><td>${esc(o.paymentStatus)}</td><td><form class="quick-status-form" method="post" action="/admin/orders/${esc(o.orderId)}/status">${csrfField(req)}<select name="orderStatus">${statusOptions(o.orderStatus)}</select><label class="inline-check"><input type="checkbox" name="notifyEmail" value="1" checked> Email</label><button type="submit" class="btn">Save</button></form></td><td>${esc(o.trackingNumber || 'Pending')}</td></tr>`).join('') || '<tr><td colspan="9">No orders found.</td></tr>';
-  res.send(adminPage(req, 'Orders', `<h1>Orders</h1><form class="actions order-filter"><input name="q" placeholder="Search order, customer, mobile" value="${esc(req.query.q || '')}"><select name="status"><option value="">All statuses</option>${statuses.map(s => `<option ${status === s ? 'selected' : ''}>${s}</option>`).join('')}</select><button class="btn">Filter</button></form><table><tr><th>Image</th><th>Order ID</th><th>Date</th><th>Customer</th><th>Mobile</th><th>Amount</th><th>Payment</th><th>Status</th><th>Tracking</th></tr>${rows}</table>`));
+  res.send(adminPage(req, 'Orders', `<h1>Orders</h1><form class="actions order-filter"><input name="q" placeholder="Search order, customer, mobile" value="${esc(req.query.q || '')}"><select name="status"><option value="">All statuses</option>${statuses.map(s => `<option ${status === s ? 'selected' : ''}>${s}</option>`).join('')}</select><button class="btn">Filter</button></form><table><tr><th>Designs</th><th>Order ID</th><th>Date</th><th>Customer</th><th>Mobile</th><th>Amount</th><th>Payment</th><th>Status</th><th>Tracking</th></tr>${rows}</table>`));
 });
 
 app.get('/admin/orders/:orderId', requireAdmin, (req, res) => {
   const order = readDb().orders.find(o => o.orderId === req.params.orderId);
   if (!order) return res.send(adminPage(req, 'Order Not Found', '<p class="notice error">Order not found.</p>'));
-  const items = order.items.map(item => `<h3>${esc(item.productName)} x ${item.quantity}</h3><p><span class="info-label">Base:</span> ${money(item.basePrice)} | <span class="info-label">Line:</span> ${money(item.lineTotal)}</p>${item.customizations.map(c => `<div class="order-customization"><p><span class="info-label">${esc(c.title)}:</span> ${esc(c.value)} (+${money(c.price)})</p>${c.uploadedPath ? orderUploadPreview({ items: [{ customizations: [c] }] }, false) : ''}</div>`).join('')}`).join('');
+  const items = order.items.map(item => `<h3>${esc(item.productName)} x ${item.quantity}</h3><p><span class="info-label">Base:</span> ${money(item.basePrice)} | <span class="info-label">Line:</span> ${money(item.lineTotal)}</p>${item.customizations.map(c => `<div class="order-customization"><p><span class="info-label">${esc(c.title)}:</span> ${esc(c.value)} (+${money(c.price)})</p></div>`).join('')}`).join('');
   const notifications = (order.emailNotifications || []).slice(0, 4).map(n => `<li><strong>${esc(n.status)}</strong> ${esc(n.result)} ${n.to ? `to ${esc(n.to)}` : ''}<small>${esc(n.at)}</small></li>`).join('') || '<li class="muted">No status emails triggered yet.</li>';
   const form = `<form class="panel grid pad" method="post" action="/admin/orders/${esc(order.orderId)}">${csrfField(req)}<h2>Fulfilment</h2><label>Order Status<select name="orderStatus">${statusOptions(order.orderStatus)}</select></label><label class="inline-check"><input type="checkbox" name="notifyEmail" value="1" checked> Trigger customer email when status changes</label><label>Payment Status<select name="paymentStatus">${['Pending', 'Collected', 'Failed', 'Refunded'].map(s => `<option ${order.paymentStatus === s ? 'selected' : ''}>${s}</option>`).join('')}</select></label><label>Courier<input name="courier" value="${esc(order.courier)}"></label><label>Tracking Number<input name="trackingNumber" value="${esc(order.trackingNumber)}"></label><label>Tracking URL<input name="trackingUrl" value="${esc(order.trackingUrl)}"></label><div class="grid two"><label>Shipping Date<input type="date" name="shippingDate" value="${esc(order.shippingDate)}"></label><label>Estimated Delivery<input type="date" name="estimatedDeliveryDate" value="${esc(order.estimatedDeliveryDate)}"></label></div><label>Admin Notes<textarea name="adminNotes">${esc(order.adminNotes)}</textarea></label><button type="submit" class="btn primary">Save Order</button></form>`;
-  res.send(adminPage(req, order.orderId, `<h1>${esc(order.orderId)}</h1><div class="page-grid"><section class="panel pad"><h2>Customer</h2><p>${esc(order.customerName)}<br>${esc(order.mobile)}<br>${esc(order.email)}</p><p>${esc(order.addressLine1)}, ${esc(order.addressLine2)}<br>${esc(order.city)}, ${esc(order.state)} ${esc(order.pinCode)}</p><h2>Uploaded Image</h2>${orderUploadPreview(order, false)}<h2>Items</h2>${items}<h2>Pricing</h2>${summary({ subtotal: order.subtotal, shipping: order.shippingAmount, total: order.total })}</section><div class="grid">${form}<section class="panel pad"><h2>Email Triggers</h2><ul class="email-log">${notifications}</ul></section></div></div>`));
+  res.send(adminPage(req, order.orderId, `<h1>${esc(order.orderId)}</h1><div class="page-grid"><section class="panel pad"><h2>Customer</h2><p>${esc(order.customerName)}<br>${esc(order.mobile)}<br>${esc(order.email)}</p><p>${esc(order.addressLine1)}, ${esc(order.addressLine2)}<br>${esc(order.city)}, ${esc(order.state)} ${esc(order.pinCode)}</p><h2>Uploaded Designs</h2>${orderUploadPreview(order, false)}<h2>Items</h2>${items}<h2>Pricing</h2>${summary({ subtotal: order.subtotal, shipping: order.shippingAmount, total: order.total })}</section><div class="grid">${form}<section class="panel pad"><h2>Email Triggers</h2><ul class="email-log">${notifications}</ul></section></div></div>`));
 });
 
 app.post('/admin/orders/:orderId', requireAdmin, async (req, res) => {
