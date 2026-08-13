@@ -22,6 +22,14 @@ const PRODUCT_IMAGES = [
 ];
 const ASSET_VERSION = 'premium-20260813-3';
 const LOG_DIR = path.join(ROOT, 'storage', 'logs');
+const INDIA_STATES = [
+  'Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh', 'Goa', 'Gujarat', 'Haryana',
+  'Himachal Pradesh', 'Jharkhand', 'Karnataka', 'Kerala', 'Madhya Pradesh', 'Maharashtra', 'Manipur',
+  'Meghalaya', 'Mizoram', 'Nagaland', 'Odisha', 'Punjab', 'Rajasthan', 'Sikkim', 'Tamil Nadu',
+  'Telangana', 'Tripura', 'Uttar Pradesh', 'Uttarakhand', 'West Bengal', 'Andaman and Nicobar Islands',
+  'Chandigarh', 'Dadra and Nagar Haveli and Daman and Diu', 'Delhi', 'Jammu and Kashmir', 'Ladakh',
+  'Lakshadweep', 'Puducherry'
+];
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
@@ -409,7 +417,8 @@ app.get('/checkout', (req, res) => {
   if (!cart(req).length) return res.redirect('/');
   const db = readDb();
   const totals = cartTotals(req);
-  const form = `<form class="panel grid pad" method="post" action="/checkout" data-once>${csrfField(req)}<h1>Checkout</h1>${flashHtml(req)}<div class="grid two"><label>Full Name<input name="customerName" required></label><label>Mobile Number<input name="mobile" pattern="[6-9][0-9]{9}" required></label></div><div class="grid two"><label>Alternate Mobile<input name="alternateMobile"></label><label>Email<input type="email" name="email"></label></div><label>Address Line 1<input name="addressLine1" required></label><label>Address Line 2<input name="addressLine2"></label><div class="grid two"><label>Landmark<input name="landmark"></label><label>PIN Code<input name="pinCode" pattern="[0-9]{6}" required></label></div><div class="grid two"><label>City<input name="city" required></label><label>State<input name="state" required></label></div><label>Order Notes<textarea name="customerNotes"></textarea></label><div class="notice"><strong>Payment:</strong> Cash on Delivery. Payment status remains Pending until collected.</div><button type="submit" class="btn primary" data-loading="Placing order...">Place COD Order</button></form>`;
+  const stateOptions = INDIA_STATES.map(state => `<option value="${esc(state)}">${esc(state)}</option>`).join('');
+  const form = `<form class="panel grid pad" method="post" action="/checkout" data-once>${csrfField(req)}<h1>Checkout</h1>${flashHtml(req)}<div class="grid two"><label>Full Name<input name="customerName" required></label><label>Mobile Number<input name="mobile" pattern="[6-9][0-9]{9}" required></label></div><div class="grid two"><label>Alternate Mobile<input name="alternateMobile"></label><label>Email<input type="email" name="email"></label></div><label>Address Line 1<input name="addressLine1" required></label><label>Address Line 2<input name="addressLine2"></label><div class="grid two"><label>Landmark<input name="landmark"></label><label>PIN Code<input name="pinCode" pattern="[0-9]{6}" required></label></div><div class="grid two"><label>City<input name="city" required></label><label>State<select name="state" required><option value="">Select state or union territory</option>${stateOptions}</select></label></div><label>Order Notes<textarea name="customerNotes"></textarea></label><div class="notice"><strong>Payment:</strong> Cash on Delivery. Payment status remains Pending until collected.</div><button type="submit" class="btn primary" data-loading="Placing order...">Place COD Order</button></form>`;
   const support = `<section class="whatsapp-panel"><p class="eyebrow">Concierge support</p><h2>Need help before placing the order?</h2><p>Chat with Chocomedley on WhatsApp for image guidance, gifting notes, delivery questions, or bulk orders.</p>${whatsappCta(db.settings, 'Continue on WhatsApp', 'Hi Chocomedley, I am at checkout and need help with my hamper order.', 'wide')}</section>`;
   res.send(page(req, 'Checkout', `<main class="container page-grid">${form}<aside class="panel pad checkout-side"><h2>Total</h2>${summary(totals)}${support}</aside></main>`));
 });
