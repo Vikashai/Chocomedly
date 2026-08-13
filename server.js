@@ -198,6 +198,12 @@ const rateLimitBuckets = new Map();
 function routeRateLimit(name, max, windowMs) {
   return (req, res, next) => {
     const now = Date.now();
+    if (rateLimitBuckets.size > 5000) {
+      for (const [bucketKey, bucket] of rateLimitBuckets) {
+        if (now >= bucket.resetAt) rateLimitBuckets.delete(bucketKey);
+      }
+      while (rateLimitBuckets.size > 10000) rateLimitBuckets.delete(rateLimitBuckets.keys().next().value);
+    }
     const key = `${name}:${req.ip}`;
     const current = rateLimitBuckets.get(key);
     if (!current || now >= current.resetAt) {
@@ -339,14 +345,42 @@ if (SESSION_SECRET) {
   }));
 }
 
+const ACTIVE_VISITOR_WINDOW_MS = 5 * 60 * 1000;
 const activeStorefrontVisitors = new Map();
+const storefrontVisitorFingerprints = new Map();
+
+function requestCookie(req, name) {
+  const prefix = `${name}=`;
+  return String(req.headers.cookie || '').split(';').map(value => value.trim()).find(value => value.startsWith(prefix))?.slice(prefix.length) || '';
+}
+
+function pruneStorefrontVisitors(now) {
+  for (const [visitor, lastSeen] of activeStorefrontVisitors) {
+    if (now - lastSeen > ACTIVE_VISITOR_WINDOW_MS) activeStorefrontVisitors.delete(visitor);
+  }
+  for (const [fingerprint, entry] of storefrontVisitorFingerprints) {
+    if (now - entry.lastSeen > ACTIVE_VISITOR_WINDOW_MS) storefrontVisitorFingerprints.delete(fingerprint);
+  }
+  while (activeStorefrontVisitors.size > 5000) activeStorefrontVisitors.delete(activeStorefrontVisitors.keys().next().value);
+  while (storefrontVisitorFingerprints.size > 5000) storefrontVisitorFingerprints.delete(storefrontVisitorFingerprints.keys().next().value);
+}
+
+function storefrontVisitorId(req, res, now) {
+  const fromCookie = requestCookie(req, 'chocomedley.visitor');
+  if (/^[a-f0-9]{32}$/.test(fromCookie)) return fromCookie;
+  const fingerprint = crypto.createHash('sha256').update(`${req.ip}|${req.get('user-agent') || 'unknown'}`).digest('hex').slice(0, 32);
+  const known = storefrontVisitorFingerprints.get(fingerprint);
+  const visitorId = known && now - known.lastSeen <= ACTIVE_VISITOR_WINDOW_MS ? known.visitorId : crypto.randomBytes(16).toString('hex');
+  storefrontVisitorFingerprints.set(fingerprint, { visitorId, lastSeen: now });
+  res.cookie('chocomedley.visitor', visitorId, { httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: 30 * 24 * 60 * 60 * 1000 });
+  return visitorId;
+}
+
 app.use((req, res, next) => {
-  if (!req.path.startsWith('/admin') && !req.path.startsWith('/assets') && !req.path.startsWith('/img') && !req.path.startsWith('/uploads')) {
+  if (!req.path.startsWith('/admin') && !req.path.startsWith('/assets') && !req.path.startsWith('/img') && !req.path.startsWith('/catalog') && !req.path.startsWith('/uploads') && !['/healthz', '/store-activity', '/robots.txt', '/sitemap.xml'].includes(req.path)) {
     const now = Date.now();
-    activeStorefrontVisitors.set(req.sessionID || req.ip, now);
-    for (const [visitor, lastSeen] of activeStorefrontVisitors) {
-      if (now - lastSeen > 5 * 60 * 1000) activeStorefrontVisitors.delete(visitor);
-    }
+    activeStorefrontVisitors.set(storefrontVisitorId(req, res, now), now);
+    pruneStorefrontVisitors(now);
   }
   next();
 });
@@ -1039,9 +1073,7 @@ function assertCsrf(req) {
 function storefrontActivity(db) {
   const now = Date.now();
   const recentOrders = (db.orders || []).filter(order => now - new Date(order.createdAt).getTime() <= 48 * 60 * 60 * 1000).length;
-  for (const [visitor, lastSeen] of activeStorefrontVisitors) {
-    if (now - lastSeen > 5 * 60 * 1000) activeStorefrontVisitors.delete(visitor);
-  }
+  pruneStorefrontVisitors(now);
   return { recentOrders, activeVisitors: activeStorefrontVisitors.size, updatedAt: new Date(now).toISOString() };
 }
 
