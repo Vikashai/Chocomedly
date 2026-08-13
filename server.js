@@ -20,10 +20,12 @@ const PRODUCT_IMAGES = [
   '/img/WhatsApp Image 2026-08-11 at 7.49.51 PM.jpeg',
   '/img/WhatsApp Image 2026-08-11 at 7.56.50 PM.jpeg'
 ];
-const ASSET_VERSION = 'premium-20260812-4';
+const ASSET_VERSION = 'premium-20260813-3';
+const LOG_DIR = path.join(ROOT, 'storage', 'logs');
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+fs.mkdirSync(LOG_DIR, { recursive: true });
 
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
@@ -169,6 +171,75 @@ function esc(value = '') {
   return String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
+function normalizePublicPath(value = '') {
+  const trimmed = String(value || '').trim().replaceAll('\\', '/');
+  if (!trimmed) return '';
+  if (/^https?:\/\//i.test(trimmed) || trimmed.startsWith('/')) return trimmed;
+  return `/${trimmed.replace(/^public\//, '')}`;
+}
+
+function uploadedPublicPath(file) {
+  return file ? `/uploads/${file.filename}` : '';
+}
+
+function whatsappDigits(value = '') {
+  const digits = String(value || '').replace(/\D/g, '');
+  if (!digits) return '';
+  if (digits.length === 10) return `91${digits}`;
+  return digits;
+}
+
+function whatsappUrl(settings, message = '') {
+  const digits = whatsappDigits(settings.whatsappNumber || settings.contactPhone);
+  if (!digits) return '';
+  const query = message ? `?text=${encodeURIComponent(message)}` : '';
+  return `https://wa.me/${digits}${query}`;
+}
+
+function whatsappCta(settings, label, message, extraClass = '') {
+  const url = whatsappUrl(settings, message);
+  return url ? `<a class="btn whatsapp ${extraClass}" href="${esc(url)}" target="_blank" rel="noopener">${esc(label)}</a>` : '';
+}
+
+function orderUploads(order) {
+  return (order.items || []).flatMap(item => (item.customizations || []).filter(c => c.uploadedPath));
+}
+
+function orderUploadPreview(order, compact = true) {
+  const uploads = orderUploads(order);
+  if (!uploads.length) return '<span class="muted">No image</span>';
+  const first = uploads[0];
+  const more = uploads.length > 1 ? `<small>+${uploads.length - 1}</small>` : '';
+  return `<a class="${compact ? 'order-image-link' : 'upload-preview'}" href="${esc(first.uploadedPath)}" target="_blank" rel="noopener"><img src="${esc(first.uploadedPath)}" alt="${esc(first.title)} upload"><span>${compact ? 'View' : 'Open uploaded image'}</span>${more}</a>`;
+}
+
+function statusOptions(current) {
+  return statuses.map(s => `<option value="${esc(s)}" ${current === s ? 'selected' : ''}>${esc(s)}</option>`).join('');
+}
+
+function appendEmailOutbox(order, previousStatus, nextStatus) {
+  const at = new Date().toISOString();
+  const event = {
+    at,
+    to: order.email || '',
+    orderId: order.orderId,
+    previousStatus,
+    status: nextStatus,
+    subject: `Order ${order.orderId} status updated`,
+    text: `Hi ${order.customerName}, your Chocomedley order ${order.orderId} is now ${nextStatus}.`
+  };
+  order.emailNotifications = order.emailNotifications || [];
+  order.emailNotifications.unshift({
+    at,
+    to: event.to,
+    status: nextStatus,
+    result: event.to ? 'queued' : 'skipped',
+    message: event.to ? 'Email notification queued in storage/logs/email-outbox.jsonl.' : 'Customer email missing.'
+  });
+  if (event.to) fs.appendFileSync(path.join(LOG_DIR, 'email-outbox.jsonl'), `${JSON.stringify(event)}\n`);
+  return order.emailNotifications[0];
+}
+
 function csrf(req) {
   if (!req.session.csrf) req.session.csrf = crypto.randomBytes(32).toString('hex');
   return req.session.csrf;
@@ -179,7 +250,7 @@ function csrfField(req) {
 }
 
 function requireCsrf(req, res, next) {
-  if ((req.path === '/cart/add' || req.path === '/buy-now') && req.is('multipart/form-data')) return next();
+  if ((req.path === '/cart/add' || req.path === '/buy-now' || req.path === '/admin/product') && req.is('multipart/form-data')) return next();
   if (req.method === 'GET' || req.body._csrf === req.session.csrf) return next();
   res.status(403).send(page(req, 'Security Check', `<main class="container"><section class="panel pad"><h1>Security check failed</h1><a class="btn primary" href="/">Back home</a></section></main>`));
 }
@@ -209,7 +280,9 @@ function assertCsrf(req) {
 function page(req, title, body, admin = false) {
   const db = readDb();
   const cartCount = cart(req).length;
-  const nav = admin ? '' : `<header class="site-header"><nav class="nav"><a class="menu-link" href="#details" aria-label="Product details"><span></span><span></span><span></span></a><a class="brand center-brand" href="/"><img src="${esc(db.settings.logoPath)}" alt="${esc(db.settings.storeName)} logo"></a><div class="nav-actions"><a href="/track">Track Order</a><a class="cart-link" href="/cart"><span>Cart</span><strong>${cartCount}</strong></a></div></nav></header>`;
+  const whatsapp = whatsappUrl(db.settings, 'Hi Chocomedley, I need help with an order.');
+  const whatsappLink = whatsapp ? `<a class="support-link" href="${esc(whatsapp)}" target="_blank" rel="noopener">WhatsApp</a>` : '';
+  const nav = admin ? '' : `<header class="site-header"><nav class="nav"><a class="menu-link" href="#details" aria-label="Product details"><span></span><span></span><span></span></a><a class="brand center-brand" href="/"><img src="${esc(db.settings.logoPath)}" alt="${esc(db.settings.storeName)} logo"></a><div class="nav-actions">${whatsappLink}<a class="track-link" href="/track">Track Order</a><a class="cart-link" href="/cart"><span>Cart</span><strong>${cartCount}</strong></a></div></nav></header>`;
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)} | ${esc(db.settings.storeName)}</title><meta name="description" content="Order the Rakhi Chocolate Hamper with custom image, extra almonds, and Cash on Delivery."><meta property="og:title" content="${esc(db.product.name)}"><meta property="og:description" content="${esc(db.product.shortDescription)}"><link rel="stylesheet" href="/assets/styles.css?v=${ASSET_VERSION}"><script defer src="/assets/app.js?v=${ASSET_VERSION}"></script></head><body>${nav}${body}</body></html>`;
 }
 
@@ -254,7 +327,7 @@ app.get('/', (req, res) => {
   const initialTotal = base + shipping(db.settings, base);
   const gallery = [db.product.imagePath, ...(db.product.galleryPaths || [])].filter(Boolean).filter((value, index, arr) => arr.indexOf(value) === index);
   const thumbs = gallery.map((src, index) => `<button type="button" data-thumb data-src="${esc(src)}" aria-label="View image ${index + 1}"><img src="${esc(src)}" alt="${esc(db.product.name)} view ${index + 1}"></button>`).join('');
-  const body = `<main class="storefront">${flashHtml(req)}<section class="product-section"><div class="product-shell"><div class="product-media"><div class="gallery-main"><button class="gallery-arrow" type="button" data-gallery-prev aria-label="Previous image">‹</button><img data-main-image src="${esc(gallery[0])}" alt="${esc(db.product.name)}"><button class="gallery-arrow next" type="button" data-gallery-next aria-label="Next image">›</button></div><div class="thumbs">${thumbs}</div></div><form class="product-panel configurator" method="post" enctype="multipart/form-data" data-product-form data-base-price="${base}" data-shipping="${shipping(db.settings, base)}">${csrfField(req)}<div class="product-title-block"><span class="panel-kicker">Personalized Chocolate Hamper</span><h2>${esc(db.product.name)}</h2><div class="rating-line"><span>★★★★★</span><strong>4.9</strong><small>Made fresh for gifting</small></div><p>${esc(db.product.shortDescription)}</p><div class="mini-trust"><span>COD available</span><span>Dispatch in 1-2 days</span><span>Photo print</span></div></div><div class="price-strip"><strong>${money(base)}</strong><small>Base price</small></div><div class="config-stack"><section class="config-option quantity-option"><div class="config-head"><div><span class="config-label">Quantity</span><p>Select hamper count</p></div></div><span class="qty"><button type="button" data-qty="-1">-</button><input name="quantity" value="1" inputmode="numeric"><button type="button" data-qty="1">+</button></span></section>${activeOptions(db).map(optionField).join('')}</div><div class="checkout-dock"><div class="total-row"><span>Total</span><strong data-live-total>${money(initialTotal)}</strong></div><div class="actions"><button class="btn primary" formaction="/cart/add">Add to Cart</button><button class="btn dark" formaction="/buy-now">Buy Now</button></div><div class="breakdown" data-breakdown></div></div></form></div></section>${bottomContent(db)}</main>${cartDrawer(req, req.query.cart === 'open')}<div class="mobile-bar"><strong data-live-total>${money(initialTotal)}</strong><button class="btn primary" onclick="document.querySelector('[data-product-form] button[formaction=&quot;/cart/add&quot;]').click()">Add to Cart</button></div>`;
+  const body = `<main class="storefront">${flashHtml(req)}<section class="product-section"><div class="product-shell"><div class="product-media"><div class="gallery-main"><button class="gallery-arrow" type="button" data-gallery-prev aria-label="Previous image">‹</button><img data-main-image src="${esc(gallery[0])}" alt="${esc(db.product.name)}"><button class="gallery-arrow next" type="button" data-gallery-next aria-label="Next image">›</button></div><div class="thumbs">${thumbs}</div></div><form class="product-panel configurator" method="post" action="/cart/add" enctype="multipart/form-data" data-product-form data-base-price="${base}" data-shipping="${shipping(db.settings, base)}">${csrfField(req)}<div class="product-title-block"><span class="panel-kicker">Personalized Chocolate Hamper</span><h2>${esc(db.product.name)}</h2><div class="rating-line"><span>★★★★★</span><strong>4.9</strong><small>Made fresh for gifting</small></div><p>${esc(db.product.shortDescription)}</p><div class="mini-trust"><span>COD available</span><span>Dispatch in 1-2 days</span><span>Photo print</span></div></div><div class="price-strip"><strong>${money(base)}</strong><small>Base price</small></div><div class="config-stack"><section class="config-option quantity-option"><div class="config-head"><div><span class="config-label">Quantity</span><p>Select hamper count</p></div></div><span class="qty"><button type="button" data-qty="-1">-</button><input name="quantity" value="1" inputmode="numeric"><button type="button" data-qty="1">+</button></span></section>${activeOptions(db).map(optionField).join('')}</div><div class="checkout-dock"><div class="total-row"><span>Total</span><strong data-live-total>${money(initialTotal)}</strong></div><div class="actions"><button type="submit" class="btn primary" formaction="/cart/add">Add to Cart</button><button type="submit" class="btn dark" formaction="/buy-now">Buy Now</button></div><div class="breakdown" data-breakdown></div></div></form></div></section>${bottomContent(db)}</main>${cartDrawer(req, req.query.cart === 'open')}<div class="mobile-bar"><strong data-live-total>${money(initialTotal)}</strong><button type="button" class="btn primary" onclick="document.querySelector('[data-product-form] button[formaction=&quot;/cart/add&quot;]').click()">Add to Cart</button></div>`;
   res.send(page(req, db.product.name, body));
 });
 
@@ -312,7 +385,7 @@ app.post('/buy-now', upload.any(), (req, res) => {
 
 app.get('/cart', (req, res) => {
   const totals = cartTotals(req);
-  const lines = cart(req).map(item => `<form class="cart-line" method="post" action="/cart/update">${csrfField(req)}<input type="hidden" name="key" value="${esc(item.key)}"><img src="${esc(item.productImage)}" alt="${esc(item.productName)}"><div><h3>${esc(item.productName)}</h3>${item.customizations.map(c => `<p class="muted">${esc(c.title)}: ${esc(c.value)} (+${money(c.price)})</p>`).join('')}<label>Quantity<input name="quantity" value="${item.quantity}" inputmode="numeric"></label><button class="btn">Update</button> <button class="btn danger" name="remove" value="1">Remove</button></div><strong>${money(item.lineTotal)}</strong></form>`).join('');
+  const lines = cart(req).map(item => `<form class="cart-line" method="post" action="/cart/update">${csrfField(req)}<input type="hidden" name="key" value="${esc(item.key)}"><img src="${esc(item.productImage)}" alt="${esc(item.productName)}"><div><h3>${esc(item.productName)}</h3>${item.customizations.map(c => `<p class="muted">${esc(c.title)}: ${esc(c.value)} (+${money(c.price)})</p>`).join('')}<label>Quantity<input name="quantity" value="${item.quantity}" inputmode="numeric"></label><button type="submit" class="btn">Update</button> <button type="submit" class="btn danger" name="remove" value="1">Remove</button></div><strong>${money(item.lineTotal)}</strong></form>`).join('');
   const empty = !cart(req).length ? `<p class="lead">Your cart is empty.</p><a class="btn primary" href="/">Order Rakhi Hamper</a>` : '';
   res.send(page(req, 'Cart', `<main class="container page-grid"><section class="panel pad"><h1>Your Cart</h1>${flashHtml(req)}${empty}${lines}</section><aside class="panel pad"><h2>Order Summary</h2>${summary(totals)}${cart(req).length ? '<a class="btn primary" href="/checkout">Checkout</a>' : ''}</aside></main>`));
 });
@@ -334,9 +407,11 @@ function summary(t) {
 
 app.get('/checkout', (req, res) => {
   if (!cart(req).length) return res.redirect('/');
+  const db = readDb();
   const totals = cartTotals(req);
-  const form = `<form class="panel grid pad" method="post" action="/checkout" data-once>${csrfField(req)}<h1>Checkout</h1>${flashHtml(req)}<div class="grid two"><label>Full Name<input name="customerName" required></label><label>Mobile Number<input name="mobile" pattern="[6-9][0-9]{9}" required></label></div><div class="grid two"><label>Alternate Mobile<input name="alternateMobile"></label><label>Email<input type="email" name="email"></label></div><label>Address Line 1<input name="addressLine1" required></label><label>Address Line 2<input name="addressLine2"></label><div class="grid two"><label>Landmark<input name="landmark"></label><label>PIN Code<input name="pinCode" pattern="[0-9]{6}" required></label></div><div class="grid two"><label>City<input name="city" required></label><label>State<input name="state" required></label></div><label>Order Notes<textarea name="customerNotes"></textarea></label><div class="notice"><strong>Payment:</strong> Cash on Delivery. Payment status remains Pending until collected.</div><button class="btn primary" data-loading="Placing order...">Place COD Order</button></form>`;
-  res.send(page(req, 'Checkout', `<main class="container page-grid">${form}<aside class="panel pad"><h2>Total</h2>${summary(totals)}</aside></main>`));
+  const form = `<form class="panel grid pad" method="post" action="/checkout" data-once>${csrfField(req)}<h1>Checkout</h1>${flashHtml(req)}<div class="grid two"><label>Full Name<input name="customerName" required></label><label>Mobile Number<input name="mobile" pattern="[6-9][0-9]{9}" required></label></div><div class="grid two"><label>Alternate Mobile<input name="alternateMobile"></label><label>Email<input type="email" name="email"></label></div><label>Address Line 1<input name="addressLine1" required></label><label>Address Line 2<input name="addressLine2"></label><div class="grid two"><label>Landmark<input name="landmark"></label><label>PIN Code<input name="pinCode" pattern="[0-9]{6}" required></label></div><div class="grid two"><label>City<input name="city" required></label><label>State<input name="state" required></label></div><label>Order Notes<textarea name="customerNotes"></textarea></label><div class="notice"><strong>Payment:</strong> Cash on Delivery. Payment status remains Pending until collected.</div><button type="submit" class="btn primary" data-loading="Placing order...">Place COD Order</button></form>`;
+  const support = `<section class="whatsapp-panel"><p class="eyebrow">Concierge support</p><h2>Need help before placing the order?</h2><p>Chat with Chocomedley on WhatsApp for image guidance, gifting notes, delivery questions, or bulk orders.</p>${whatsappCta(db.settings, 'Continue on WhatsApp', 'Hi Chocomedley, I am at checkout and need help with my hamper order.', 'wide')}</section>`;
+  res.send(page(req, 'Checkout', `<main class="container page-grid">${form}<aside class="panel pad checkout-side"><h2>Total</h2>${summary(totals)}${support}</aside></main>`));
 });
 
 app.post('/checkout', (req, res) => {
@@ -370,16 +445,19 @@ app.post('/checkout', (req, res) => {
 });
 
 app.get('/success', (req, res) => {
-  const order = readDb().orders.find(o => o.orderId === req.session.lastOrder);
+  const db = readDb();
+  const order = db.orders.find(o => o.orderId === req.session.lastOrder);
   if (!order) return res.redirect('/');
-  res.send(page(req, 'Order Placed', `<main class="container"><section class="panel pad"><p class="eyebrow">Thank you</p><h1>Your Order Has Been Placed.</h1><p class="lead">Order ID: <strong>${esc(order.orderId)}</strong></p><p>Payment: Cash on Delivery<br>Total: <strong>${money(order.total)}</strong><br>Mobile: ${esc(order.mobile)}</p><a class="btn primary" href="/track">Track Order</a></section></main>`));
+  res.send(page(req, 'Order Placed', `<main class="container"><section class="panel pad success-panel"><p class="eyebrow">Thank you</p><h1>Your Order Has Been Placed.</h1><p class="lead">Order ID: <strong>${esc(order.orderId)}</strong></p><p>Payment: Cash on Delivery<br>Total: <strong>${money(order.total)}</strong><br>Mobile: ${esc(order.mobile)}</p><div class="actions"><a class="btn primary" href="/track">Track Order</a>${whatsappCta(db.settings, 'Message on WhatsApp', `Hi Chocomedley, I placed order ${order.orderId} and want to confirm the details.`)}</div></section></main>`));
 });
 
 app.get('/track', (req, res) => {
+  const db = readDb();
   const lookup = req.session.trackLookup;
-  const order = lookup ? readDb().orders.find(o => o.orderId === lookup.orderId && o.mobile === lookup.mobile) : null;
-  const result = lookup && !order ? '<p class="notice error">No matching order found.</p>' : order ? `<h2>${esc(order.orderStatus)}</h2><p>Courier: ${esc(order.courier || 'Not assigned yet')}</p><p>Tracking: ${esc(order.trackingNumber || 'Pending')}</p>${order.trackingUrl ? `<a class="btn" href="${esc(order.trackingUrl)}">Open tracking</a>` : ''}<p class="muted">Estimated delivery: ${esc(order.estimatedDeliveryDate || 'To be updated')}</p>` : '<p class="lead">Enter your Order ID and mobile number to see the latest fulfilment status.</p>';
-  res.send(page(req, 'Track Order', `<main class="container page-grid"><form class="panel grid pad" method="post" action="/track">${csrfField(req)}<h1>Track Order</h1><label>Order ID<input name="orderId" placeholder="RAKHI-10001" required></label><label>Mobile Number<input name="mobile" required></label><button class="btn primary">Check Status</button></form><aside class="panel pad">${result}</aside></main>`));
+  const matches = lookup ? db.orders.filter(o => o.mobile === lookup.mobile && (!lookup.orderId || o.orderId.toLowerCase() === lookup.orderId.toLowerCase())) : [];
+  const cards = matches.map(order => `<article class="track-card"><div><p class="eyebrow">${esc(order.orderId)}</p><h2>${esc(order.orderStatus)}</h2><p>${esc(order.customerName)} · ${money(order.total)}</p></div><div class="track-meta"><p>Courier: <strong>${esc(order.courier || 'Not assigned yet')}</strong></p><p>Tracking: <strong>${esc(order.trackingNumber || 'Pending')}</strong></p><p>Estimated delivery: <strong>${esc(order.estimatedDeliveryDate || 'To be updated')}</strong></p></div><div class="actions">${order.trackingUrl ? `<a class="btn primary" href="${esc(order.trackingUrl)}" target="_blank" rel="noopener">Open Courier Tracking</a>` : ''}${whatsappCta(db.settings, 'Ask on WhatsApp', `Hi Chocomedley, I want an update for order ${order.orderId}.`)}</div></article>`).join('');
+  const result = lookup && !matches.length ? `<p class="notice error">No matching order found for that mobile number${lookup.orderId ? ' and order ID' : ''}.</p>${whatsappCta(db.settings, 'Get Help on WhatsApp', 'Hi Chocomedley, I cannot find my order tracking details. Please help.')}` : matches.length ? cards : `<p class="lead">Enter your mobile number to see live order status. Add Order ID if you want to narrow the result.</p>${whatsappCta(db.settings, 'Chat With Support', 'Hi Chocomedley, I need help tracking my order.')}`;
+  res.send(page(req, 'Track Order', `<main class="container page-grid"><form class="panel grid pad" method="post" action="/track">${csrfField(req)}<h1>Track Order</h1><label>Mobile Number<input name="mobile" pattern="[6-9][0-9]{9}" value="${esc(lookup?.mobile || '')}" required></label><label>Order ID <span class="muted">optional</span><input name="orderId" placeholder="RAKHI-10001" value="${esc(lookup?.orderId || '')}"></label><button type="submit" class="btn primary">Check Live Status</button></form><aside class="panel pad track-results">${result}</aside></main>`));
 });
 
 app.post('/track', (req, res) => {
@@ -437,7 +515,8 @@ app.get('/admin', requireAdmin, (req, res) => {
   const today = new Date().toISOString().slice(0, 10);
   const ordersToday = db.orders.filter(o => o.createdAt.slice(0, 10) === today);
   const stat = (label, value) => `<div class="panel stat"><p class="muted">${label}</p><h2>${value}</h2></div>`;
-  res.send(adminPage(req, 'Dashboard', `<h1>Dashboard</h1><div class="stats">${stat('Orders Today', ordersToday.length)}${stat('Revenue Today', money(ordersToday.reduce((s, o) => s + o.total, 0)))}${stat('Total Orders', db.orders.length)}${stat('Total Revenue', money(db.orders.reduce((s, o) => s + o.total, 0)))}</div>`));
+  const recentRows = db.orders.slice(0, 8).map(o => `<tr><td>${orderUploadPreview(o)}</td><td><a href="/admin/orders/${esc(o.orderId)}">${esc(o.orderId)}</a><small class="muted">${esc(o.createdAt.slice(0, 10))}</small></td><td>${esc(o.customerName)}<small class="muted">${esc(o.mobile)}</small></td><td>${money(o.total)}</td><td><span class="status-pill">${esc(o.orderStatus)}</span></td><td><form class="quick-status-form" method="post" action="/admin/orders/${esc(o.orderId)}/status">${csrfField(req)}<select name="orderStatus">${statusOptions(o.orderStatus)}</select><label class="inline-check"><input type="checkbox" name="notifyEmail" value="1" checked> Email</label><button type="submit" class="btn">Save</button></form></td></tr>`).join('') || '<tr><td colspan="6">No orders yet.</td></tr>';
+  res.send(adminPage(req, 'Dashboard', `<h1>Dashboard</h1><div class="stats">${stat('Orders Today', ordersToday.length)}${stat('Revenue Today', money(ordersToday.reduce((s, o) => s + o.total, 0)))}${stat('Total Orders', db.orders.length)}${stat('Total Revenue', money(db.orders.reduce((s, o) => s + o.total, 0)))}</div><section class="admin-section"><div class="admin-section-head"><h2>Recent Orders</h2><a class="btn ghost" href="/admin/orders">View all</a></div><table><tr><th>Image</th><th>Order</th><th>Customer</th><th>Amount</th><th>Status</th><th>Quick Update</th></tr>${recentRows}</table></section>`));
 });
 
 const statuses = ['New Order', 'Confirmed', 'Preparing', 'Ready to Ship', 'Shipped', 'Out for Delivery', 'Delivered', 'Cancelled'];
@@ -446,38 +525,68 @@ app.get('/admin/orders', requireAdmin, (req, res) => {
   const q = String(req.query.q || '').toLowerCase();
   const status = String(req.query.status || '');
   const orders = readDb().orders.filter(o => (!q || [o.orderId, o.customerName, o.mobile].some(v => String(v).toLowerCase().includes(q))) && (!status || o.orderStatus === status));
-  const rows = orders.map(o => `<tr><td><a href="/admin/orders/${esc(o.orderId)}">${esc(o.orderId)}</a></td><td>${esc(o.createdAt.slice(0, 10))}</td><td>${esc(o.customerName)}</td><td>${esc(o.mobile)}</td><td>${money(o.total)}</td><td>${esc(o.paymentStatus)}</td><td>${esc(o.orderStatus)}</td><td>${esc(o.trackingNumber || 'Pending')}</td></tr>`).join('') || '<tr><td colspan="8">No orders found.</td></tr>';
-  res.send(adminPage(req, 'Orders', `<h1>Orders</h1><form class="actions"><input name="q" placeholder="Search order, customer, mobile" value="${esc(req.query.q || '')}"><select name="status"><option value="">All statuses</option>${statuses.map(s => `<option ${status === s ? 'selected' : ''}>${s}</option>`).join('')}</select><button class="btn">Filter</button></form><table><tr><th>Order ID</th><th>Date</th><th>Customer</th><th>Mobile</th><th>Amount</th><th>Payment</th><th>Status</th><th>Tracking</th></tr>${rows}</table>`));
+  const rows = orders.map(o => `<tr><td>${orderUploadPreview(o)}</td><td><a href="/admin/orders/${esc(o.orderId)}">${esc(o.orderId)}</a></td><td>${esc(o.createdAt.slice(0, 10))}</td><td>${esc(o.customerName)}</td><td>${esc(o.mobile)}</td><td>${money(o.total)}</td><td>${esc(o.paymentStatus)}</td><td><form class="quick-status-form" method="post" action="/admin/orders/${esc(o.orderId)}/status">${csrfField(req)}<select name="orderStatus">${statusOptions(o.orderStatus)}</select><label class="inline-check"><input type="checkbox" name="notifyEmail" value="1" checked> Email</label><button type="submit" class="btn">Save</button></form></td><td>${esc(o.trackingNumber || 'Pending')}</td></tr>`).join('') || '<tr><td colspan="9">No orders found.</td></tr>';
+  res.send(adminPage(req, 'Orders', `<h1>Orders</h1><form class="actions order-filter"><input name="q" placeholder="Search order, customer, mobile" value="${esc(req.query.q || '')}"><select name="status"><option value="">All statuses</option>${statuses.map(s => `<option ${status === s ? 'selected' : ''}>${s}</option>`).join('')}</select><button class="btn">Filter</button></form><table><tr><th>Image</th><th>Order ID</th><th>Date</th><th>Customer</th><th>Mobile</th><th>Amount</th><th>Payment</th><th>Status</th><th>Tracking</th></tr>${rows}</table>`));
 });
 
 app.get('/admin/orders/:orderId', requireAdmin, (req, res) => {
   const order = readDb().orders.find(o => o.orderId === req.params.orderId);
   if (!order) return res.send(adminPage(req, 'Order Not Found', '<p class="notice error">Order not found.</p>'));
-  const items = order.items.map(item => `<h3>${esc(item.productName)} x ${item.quantity}</h3><p>Base ${money(item.basePrice)} | Line ${money(item.lineTotal)}</p>${item.customizations.map(c => `<p>${esc(c.title)}: ${esc(c.value)} (+${money(c.price)}) ${c.uploadedPath ? `<a class="btn" href="${esc(c.uploadedPath)}">View/Download</a>` : ''}</p>`).join('')}`).join('');
-  const form = `<form class="panel grid pad" method="post" action="/admin/orders/${esc(order.orderId)}">${csrfField(req)}<h2>Fulfilment</h2><label>Order Status<select name="orderStatus">${statuses.map(s => `<option ${order.orderStatus === s ? 'selected' : ''}>${s}</option>`).join('')}</select></label><label>Payment Status<select name="paymentStatus">${['Pending', 'Collected', 'Failed', 'Refunded'].map(s => `<option ${order.paymentStatus === s ? 'selected' : ''}>${s}</option>`).join('')}</select></label><label>Courier<input name="courier" value="${esc(order.courier)}"></label><label>Tracking Number<input name="trackingNumber" value="${esc(order.trackingNumber)}"></label><label>Tracking URL<input name="trackingUrl" value="${esc(order.trackingUrl)}"></label><div class="grid two"><label>Shipping Date<input type="date" name="shippingDate" value="${esc(order.shippingDate)}"></label><label>Estimated Delivery<input type="date" name="estimatedDeliveryDate" value="${esc(order.estimatedDeliveryDate)}"></label></div><label>Admin Notes<textarea name="adminNotes">${esc(order.adminNotes)}</textarea></label><button class="btn primary">Save Order</button></form>`;
-  res.send(adminPage(req, order.orderId, `<h1>${esc(order.orderId)}</h1><div class="page-grid"><section class="panel pad"><h2>Customer</h2><p>${esc(order.customerName)}<br>${esc(order.mobile)}<br>${esc(order.email)}</p><p>${esc(order.addressLine1)}, ${esc(order.addressLine2)}<br>${esc(order.city)}, ${esc(order.state)} ${esc(order.pinCode)}</p><h2>Items</h2>${items}<h2>Pricing</h2>${summary({ subtotal: order.subtotal, shipping: order.shippingAmount, total: order.total })}</section>${form}</div>`));
+  const items = order.items.map(item => `<h3>${esc(item.productName)} x ${item.quantity}</h3><p>Base ${money(item.basePrice)} | Line ${money(item.lineTotal)}</p>${item.customizations.map(c => `<div class="order-customization"><p>${esc(c.title)}: ${esc(c.value)} (+${money(c.price)})</p>${c.uploadedPath ? orderUploadPreview({ items: [{ customizations: [c] }] }, false) : ''}</div>`).join('')}`).join('');
+  const notifications = (order.emailNotifications || []).slice(0, 4).map(n => `<li><strong>${esc(n.status)}</strong> ${esc(n.result)} ${n.to ? `to ${esc(n.to)}` : ''}<small>${esc(n.at)}</small></li>`).join('') || '<li class="muted">No status emails triggered yet.</li>';
+  const form = `<form class="panel grid pad" method="post" action="/admin/orders/${esc(order.orderId)}">${csrfField(req)}<h2>Fulfilment</h2><label>Order Status<select name="orderStatus">${statusOptions(order.orderStatus)}</select></label><label class="inline-check"><input type="checkbox" name="notifyEmail" value="1" checked> Trigger customer email when status changes</label><label>Payment Status<select name="paymentStatus">${['Pending', 'Collected', 'Failed', 'Refunded'].map(s => `<option ${order.paymentStatus === s ? 'selected' : ''}>${s}</option>`).join('')}</select></label><label>Courier<input name="courier" value="${esc(order.courier)}"></label><label>Tracking Number<input name="trackingNumber" value="${esc(order.trackingNumber)}"></label><label>Tracking URL<input name="trackingUrl" value="${esc(order.trackingUrl)}"></label><div class="grid two"><label>Shipping Date<input type="date" name="shippingDate" value="${esc(order.shippingDate)}"></label><label>Estimated Delivery<input type="date" name="estimatedDeliveryDate" value="${esc(order.estimatedDeliveryDate)}"></label></div><label>Admin Notes<textarea name="adminNotes">${esc(order.adminNotes)}</textarea></label><button type="submit" class="btn primary">Save Order</button></form>`;
+  res.send(adminPage(req, order.orderId, `<h1>${esc(order.orderId)}</h1><div class="page-grid"><section class="panel pad"><h2>Customer</h2><p>${esc(order.customerName)}<br>${esc(order.mobile)}<br>${esc(order.email)}</p><p>${esc(order.addressLine1)}, ${esc(order.addressLine2)}<br>${esc(order.city)}, ${esc(order.state)} ${esc(order.pinCode)}</p><h2>Uploaded Image</h2>${orderUploadPreview(order, false)}<h2>Items</h2>${items}<h2>Pricing</h2>${summary({ subtotal: order.subtotal, shipping: order.shippingAmount, total: order.total })}</section><div class="grid">${form}<section class="panel pad"><h2>Email Triggers</h2><ul class="email-log">${notifications}</ul></section></div></div>`));
 });
 
 app.post('/admin/orders/:orderId', requireAdmin, (req, res) => {
   const db = readDb();
   const order = db.orders.find(o => o.orderId === req.params.orderId);
   if (order) {
-    if (order.orderStatus !== req.body.orderStatus) order.statusHistory.push({ status: req.body.orderStatus, at: new Date().toISOString() });
+    const previousStatus = order.orderStatus;
+    if (previousStatus !== req.body.orderStatus) {
+      order.statusHistory.push({ status: req.body.orderStatus, at: new Date().toISOString() });
+      if (req.body.notifyEmail) appendEmailOutbox(order, previousStatus, req.body.orderStatus);
+    }
     Object.assign(order, { orderStatus: req.body.orderStatus, paymentStatus: req.body.paymentStatus, courier: req.body.courier || '', trackingNumber: req.body.trackingNumber || '', trackingUrl: req.body.trackingUrl || '', shippingDate: req.body.shippingDate || '', estimatedDeliveryDate: req.body.estimatedDeliveryDate || '', adminNotes: req.body.adminNotes || '', updatedAt: new Date().toISOString() });
     writeDb(db);
-    flash(req, 'success', 'Order updated.');
+    flash(req, 'success', previousStatus !== req.body.orderStatus && req.body.notifyEmail ? 'Order updated and email trigger queued.' : 'Order updated.');
   }
   res.redirect(`/admin/orders/${req.params.orderId}`);
 });
 
-app.get('/admin/product', requireAdmin, (req, res) => {
-  const p = readDb().product;
-  res.send(adminPage(req, 'Product', `<h1>Product Settings</h1><form class="panel grid pad" method="post" action="/admin/product">${csrfField(req)}<label>Name<input name="name" value="${esc(p.name)}"></label><label>Short Description<textarea name="shortDescription">${esc(p.shortDescription)}</textarea></label><label>Long Description<textarea name="longDescription">${esc(p.longDescription)}</textarea></label><div class="grid two"><label>Base Price<input name="basePrice" value="${esc(p.basePrice)}"></label><label>Offer Price<input name="offerPrice" value="${esc(p.offerPrice)}"></label></div><label>Main Image Path<input name="imagePath" value="${esc(p.imagePath)}"></label><label>Gallery Image Paths, one per line<textarea name="galleryPaths">${esc((p.galleryPaths || []).join('\n'))}</textarea></label><label>Delivery Text<input name="deliveryText" value="${esc(p.deliveryText)}"></label><label>Product Details<textarea name="details">${esc(p.details || '')}</textarea></label><label>Ingredients<textarea name="ingredients">${esc(p.ingredients || '')}</textarea></label><label>Care / Storage<textarea name="care">${esc(p.care || '')}</textarea></label><label>FAQs, one per line as Question|Answer<textarea name="faq">${esc(p.faq || '')}</textarea></label><label><input type="checkbox" name="active" value="1" ${p.active ? 'checked' : ''}> Product active</label><label><input type="checkbox" name="codAvailable" value="1" ${p.codAvailable ? 'checked' : ''}> COD available</label><button class="btn primary">Save Product</button></form>`));
+app.post('/admin/orders/:orderId/status', requireAdmin, (req, res) => {
+  const db = readDb();
+  const order = db.orders.find(o => o.orderId === req.params.orderId);
+  if (order && statuses.includes(req.body.orderStatus)) {
+    const previousStatus = order.orderStatus;
+    if (previousStatus !== req.body.orderStatus) {
+      order.orderStatus = req.body.orderStatus;
+      order.updatedAt = new Date().toISOString();
+      order.statusHistory.push({ status: req.body.orderStatus, at: order.updatedAt });
+      if (req.body.notifyEmail) appendEmailOutbox(order, previousStatus, req.body.orderStatus);
+      writeDb(db);
+      flash(req, 'success', req.body.notifyEmail ? `Status changed to ${req.body.orderStatus}; email trigger queued.` : `Status changed to ${req.body.orderStatus}.`);
+    } else {
+      flash(req, 'success', 'Status already up to date.');
+    }
+  }
+  res.redirect(req.get('referer') || '/admin/orders');
 });
 
-app.post('/admin/product', requireAdmin, (req, res) => {
+app.get('/admin/product', requireAdmin, (req, res) => {
+  const p = readDb().product;
+  const galleryPreview = (p.galleryPaths || []).filter(Boolean).map(src => `<img src="${esc(src)}" alt="Gallery image">`).join('');
+  res.send(adminPage(req, 'Product', `<h1>Product Settings</h1><form class="panel grid pad" method="post" action="/admin/product" enctype="multipart/form-data">${csrfField(req)}<label>Name<input name="name" value="${esc(p.name)}"></label><label>Short Description<textarea name="shortDescription">${esc(p.shortDescription)}</textarea></label><label>Long Description<textarea name="longDescription">${esc(p.longDescription)}</textarea></label><div class="grid two"><label>Base Price<input name="basePrice" value="${esc(p.basePrice)}"></label><label>Offer Price<input name="offerPrice" value="${esc(p.offerPrice)}"></label></div><section class="admin-image-tools"><div><span class="config-label">Main Image</span>${p.imagePath ? `<img class="admin-image-preview" src="${esc(p.imagePath)}" alt="Current main product image">` : ''}</div><label>Upload New Main Image<input type="file" name="imageUpload" accept="image/jpeg,image/png,image/webp"></label><label>Main Image Path<input name="imagePath" value="${esc(p.imagePath)}"></label></section><section class="admin-image-tools"><div><span class="config-label">Gallery Images</span><div class="admin-gallery-preview">${galleryPreview}</div></div><label>Add Gallery Images<input type="file" name="galleryUploads" accept="image/jpeg,image/png,image/webp" multiple></label><label>Gallery Image Paths, one per line<textarea name="galleryPaths">${esc((p.galleryPaths || []).join('\n'))}</textarea></label></section><label>Delivery Text<input name="deliveryText" value="${esc(p.deliveryText)}"></label><label>Product Details<textarea name="details">${esc(p.details || '')}</textarea></label><label>Ingredients<textarea name="ingredients">${esc(p.ingredients || '')}</textarea></label><label>Care / Storage<textarea name="care">${esc(p.care || '')}</textarea></label><label>FAQs, one per line as Question|Answer<textarea name="faq">${esc(p.faq || '')}</textarea></label><label><input type="checkbox" name="active" value="1" ${p.active ? 'checked' : ''}> Product active</label><label><input type="checkbox" name="codAvailable" value="1" ${p.codAvailable ? 'checked' : ''}> COD available</label><button type="submit" class="btn primary">Save Product</button></form>`));
+});
+
+app.post('/admin/product', requireAdmin, upload.fields([{ name: 'imageUpload', maxCount: 1 }, { name: 'galleryUploads', maxCount: 12 }]), (req, res) => {
+  try { assertCsrf(req); } catch (e) { flash(req, 'error', e.message); return res.redirect('/admin/product'); }
   const db = readDb();
-  Object.assign(db.product, { name: req.body.name, shortDescription: req.body.shortDescription, longDescription: req.body.longDescription, basePrice: Number(req.body.basePrice || 0), offerPrice: req.body.offerPrice, imagePath: req.body.imagePath, galleryPaths: String(req.body.galleryPaths || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean), active: Boolean(req.body.active), codAvailable: Boolean(req.body.codAvailable), deliveryText: req.body.deliveryText, details: req.body.details, ingredients: req.body.ingredients, care: req.body.care, faq: req.body.faq });
+  const mainUpload = req.files?.imageUpload?.[0];
+  const galleryUploads = req.files?.galleryUploads || [];
+  const typedGallery = String(req.body.galleryPaths || '').split(/\r?\n/).map(normalizePublicPath).filter(Boolean);
+  const uploadedGallery = galleryUploads.map(uploadedPublicPath);
+  Object.assign(db.product, { name: req.body.name, shortDescription: req.body.shortDescription, longDescription: req.body.longDescription, basePrice: Number(req.body.basePrice || 0), offerPrice: req.body.offerPrice, imagePath: uploadedPublicPath(mainUpload) || normalizePublicPath(req.body.imagePath), galleryPaths: [...typedGallery, ...uploadedGallery].filter((value, index, arr) => arr.indexOf(value) === index), active: Boolean(req.body.active), codAvailable: Boolean(req.body.codAvailable), deliveryText: req.body.deliveryText, details: req.body.details, ingredients: req.body.ingredients, care: req.body.care, faq: req.body.faq });
   writeDb(db);
   flash(req, 'success', 'Product updated.');
   res.redirect('/admin/product');

@@ -78,7 +78,7 @@ function initProduct() {
 
 function initCheckout() {
   document.querySelectorAll('form[data-once]').forEach(form => form.addEventListener('submit', () => {
-    const btn = form.querySelector('button[type="submit"]');
+    const btn = form.querySelector('button[type="submit"], button:not([type])');
     if (btn) {
       btn.disabled = true;
       btn.textContent = btn.dataset.loading || 'Saving...';
