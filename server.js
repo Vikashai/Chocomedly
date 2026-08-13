@@ -22,6 +22,9 @@ const PRODUCT_IMAGES = [
 ];
 const ASSET_VERSION = 'premium-20260813-9';
 const LOG_DIR = path.join(ROOT, 'storage', 'logs');
+const DEMO_ADMIN_EMAIL = process.env.DEMO_ADMIN_EMAIL || 'admin@chocomedley.in';
+const DEMO_ADMIN_PASSWORD = process.env.DEMO_ADMIN_PASSWORD || '';
+const DEMO_ADMIN_ENABLED = Boolean(DEMO_ADMIN_PASSWORD) && (process.env.DEMO_ADMIN_ENABLED === 'true' || Boolean(process.env.RENDER || process.env.RENDER_EXTERNAL_URL || process.env.RENDER_SERVICE_ID));
 const INDIA_STATES = [
   'Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh', 'Goa', 'Gujarat', 'Haryana',
   'Himachal Pradesh', 'Jharkhand', 'Karnataka', 'Kerala', 'Madhya Pradesh', 'Maharashtra', 'Manipur',
@@ -76,7 +79,7 @@ const upload = multer({
 
 function seed() {
   return {
-    admins: [],
+    admins: demoAdmins(),
     settings: {
       storeName: 'Chocomedley',
       logoPath: '/img/WhatsApp Image 2026-08-12 at 1.24.57 PM.jpeg',
@@ -119,6 +122,17 @@ function seed() {
   };
 }
 
+function demoAdmins() {
+  if (!DEMO_ADMIN_ENABLED || DEMO_ADMIN_PASSWORD.length < 10) return [];
+  return [{
+    id: 'render-demo-admin',
+    name: 'Admin',
+    email: DEMO_ADMIN_EMAIL.trim().toLowerCase(),
+    passwordHash: bcrypt.hashSync(DEMO_ADMIN_PASSWORD, 12),
+    createdAt: new Date().toISOString()
+  }];
+}
+
 function readDb() {
   if (!fs.existsSync(DB_FILE)) writeDb(seed());
   const data = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
@@ -139,6 +153,10 @@ function readDb() {
   }
   if (!Array.isArray(data.product.galleryPaths) || !data.product.galleryPaths.length) {
     data.product.galleryPaths = PRODUCT_IMAGES;
+    changed = true;
+  }
+  if ((!Array.isArray(data.admins) || !data.admins.length) && DEMO_ADMIN_ENABLED) {
+    data.admins = demoAdmins();
     changed = true;
   }
   if (!data.product.imagePath || data.product.imagePath.includes('2026-08-12')) {

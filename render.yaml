@@ -10,6 +10,10 @@ services:
         value: production
       - key: ADMIN_SETUP_ENABLED
         value: "true"
+      - key: DEMO_ADMIN_ENABLED
+        value: "true"
+      - key: DEMO_ADMIN_EMAIL
+        value: admin@chocomedley.in
       - key: SESSION_SECRET
         generateValue: true
       - key: DATA_DIR
