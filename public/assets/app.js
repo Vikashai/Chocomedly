@@ -147,7 +147,7 @@ function validateCheckout(form) {
 
 function initAdminValidation() {
   const cleaners = {
-    name: value => value.replace(/[^\p{L}\p{N}\s&()/-]/gu, '').replace(/\s{2,}/g, ' '),
+    name: value => value.replace(/[^\p{L}\s]/gu, '').replace(/\s{2,}/g, ' '),
     text: value => value.replace(/[^\p{L}\p{N}\s.,'&()/-]/gu, '').replace(/\s{2,}/g, ' '),
     phone: value => value.replace(/[^\d+\s()-]/g, ''),
     person: value => value.replace(/[^A-Za-z ]/g, '').replace(/\s{2,}/g, ' '),
@@ -161,8 +161,54 @@ function initAdminValidation() {
       const next = clean(input.value);
       if (input.value !== next) input.value = next;
       if (input.dataset.rule) refreshCheckoutField(input);
+      if (input.dataset.adminRule) refreshAdminField(input);
     });
   });
+  document.querySelectorAll('[data-admin-rule]').forEach(input => {
+    input.addEventListener('input', () => refreshAdminField(input));
+    input.addEventListener('change', () => refreshAdminField(input));
+    input.addEventListener('blur', () => validateAdminField(input));
+  });
+  document.querySelectorAll('[data-admin-form]').forEach(form => {
+    form.addEventListener('submit', event => {
+      if (!validateAdminForm(form)) {
+        event.preventDefault();
+        return;
+      }
+      setLoading(form);
+    });
+  });
+}
+
+const adminRules = {
+  name: input => /^[\p{L}][\p{L}\s]{1,79}$/u.test(input.value.trim()) ? '' : 'Use letters only.',
+  text: input => !input.value.trim() || input.value.trim().length >= 4 ? '' : 'Enter at least 4 characters.',
+  money: input => /^\d+$/.test(input.value.trim()) ? '' : 'Use numbers only.',
+  optionalMoney: input => !input.value.trim() || /^\d+$/.test(input.value.trim()) ? '' : 'Use numbers only.',
+  wholeNumber: input => /^\d+$/.test(input.value.trim()) ? '' : 'Use numbers only.',
+  optionalWholeNumber: input => !input.value.trim() || /^\d+$/.test(input.value.trim()) ? '' : 'Use numbers only.'
+};
+
+function validateAdminField(input) {
+  const message = adminRules[input.dataset.adminRule]?.(input) || '';
+  setFieldError(input, message);
+  return !message;
+}
+
+function refreshAdminField(input) {
+  const message = adminRules[input.dataset.adminRule]?.(input) || '';
+  if (input.classList.contains('is-invalid') || !message) {
+    setFieldError(input, message);
+  }
+}
+
+function validateAdminForm(form) {
+  let firstInvalid = null;
+  form.querySelectorAll('[data-admin-rule]').forEach(input => {
+    if (!validateAdminField(input) && !firstInvalid) firstInvalid = input;
+  });
+  if (firstInvalid) firstInvalid.focus();
+  return !firstInvalid;
 }
 
 document.addEventListener('DOMContentLoaded', () => {
