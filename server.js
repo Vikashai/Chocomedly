@@ -15,7 +15,6 @@ const DATA_DIR = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : pat
 const UPLOAD_DIR = process.env.UPLOAD_DIR ? path.resolve(process.env.UPLOAD_DIR) : path.join(ROOT, 'public', 'uploads');
 const DB_FILE = path.join(DATA_DIR, 'store.json');
 const DB_DRIVER = String(process.env.DB_DRIVER || 'json').toLowerCase();
-const STORE_DB_FILE = process.env.STORE_DB_FILE ? path.resolve(process.env.STORE_DB_FILE) : path.join(DATA_DIR, 'chocomedley.sqlite');
 const PRODUCT_IMAGES = [
   '/img/WhatsApp Image 2026-08-11 at 7.32.16 PM.jpeg',
   '/img/WhatsApp Image 2026-08-11 at 7.36.53 PM.jpeg',
@@ -42,7 +41,6 @@ const INDIA_STATES = [
 fs.mkdirSync(DATA_DIR, { recursive: true });
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 fs.mkdirSync(LOG_DIR, { recursive: true });
-if (STORE_DB_FILE) fs.mkdirSync(path.dirname(STORE_DB_FILE), { recursive: true });
 
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
@@ -223,54 +221,58 @@ function ensureDemoAdmin(data) {
   return changed;
 }
 
-let sqliteStore = null;
+let mysqlPool = null;
+let dbCache = null;
 
-function getSqliteStore() {
-  if (DB_DRIVER !== 'sqlite') return null;
-  if (!sqliteStore) {
-    let DatabaseSync;
-    try {
-      ({ DatabaseSync } = require('node:sqlite'));
-    } catch (_) {
-      throw new Error('DB_DRIVER=sqlite requires Node.js 22.5+ or Node.js 24 on Hostinger.');
+async function initStorage() {
+  if (DB_DRIVER === 'mysql') {
+    const mysql = require('mysql2/promise');
+    mysqlPool = mysql.createPool({
+      host: process.env.DB_HOST,
+      port: Number(process.env.DB_PORT || 3306),
+      user: process.env.DB_USER,
+      password: process.env.DB_PASSWORD,
+      database: process.env.DB_NAME,
+      waitForConnections: true,
+      connectionLimit: Number(process.env.DB_CONNECTION_LIMIT || 5),
+      charset: 'utf8mb4'
+    });
+    await mysqlPool.query('CREATE TABLE IF NOT EXISTS app_state (state_key VARCHAR(64) PRIMARY KEY, state_json LONGTEXT NOT NULL, updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4');
+    const [rows] = await mysqlPool.query('SELECT state_json FROM app_state WHERE state_key = ?', ['store']);
+    if (rows[0]?.state_json) {
+      dbCache = JSON.parse(rows[0].state_json);
+    } else {
+      dbCache = fs.existsSync(DB_FILE) ? JSON.parse(fs.readFileSync(DB_FILE, 'utf8')) : seed();
+      await writeStoredDb(dbCache);
     }
-    sqliteStore = new DatabaseSync(STORE_DB_FILE);
-    sqliteStore.exec('CREATE TABLE IF NOT EXISTS app_state (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)');
+    return;
   }
-  return sqliteStore;
+  if (DB_DRIVER !== 'json') throw new Error('DB_DRIVER must be mysql or json.');
+  dbCache = fs.existsSync(DB_FILE) ? JSON.parse(fs.readFileSync(DB_FILE, 'utf8')) : seed();
+  if (!fs.existsSync(DB_FILE)) await writeStoredDb(dbCache);
 }
 
 function readStoredDb() {
-  const sqlite = getSqliteStore();
-  if (sqlite) {
-    const row = sqlite.prepare('SELECT value FROM app_state WHERE key = ?').get('store');
-    if (row?.value) return JSON.parse(row.value);
-    if (fs.existsSync(DB_FILE)) {
-      const imported = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
-      writeStoredDb(imported);
-      return imported;
-    }
-    return null;
-  }
-  if (!fs.existsSync(DB_FILE)) return null;
-  return JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+  return dbCache ? JSON.parse(JSON.stringify(dbCache)) : null;
 }
 
-function writeStoredDb(data) {
-  const sqlite = getSqliteStore();
-  if (sqlite) {
-    sqlite.prepare('INSERT INTO app_state (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at')
-      .run('store', JSON.stringify(data), new Date().toISOString());
+async function writeStoredDb(data) {
+  dbCache = JSON.parse(JSON.stringify(data));
+  if (mysqlPool) {
+    await mysqlPool.query(
+      'INSERT INTO app_state (state_key, state_json) VALUES (?, ?) ON DUPLICATE KEY UPDATE state_json = VALUES(state_json)',
+      ['store', JSON.stringify(dbCache)]
+    );
     return;
   }
-  fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
+  fs.writeFileSync(DB_FILE, JSON.stringify(dbCache, null, 2));
 }
 
 function readDb() {
   let data = readStoredDb();
   if (!data) {
     data = seed();
-    writeDb(data);
+    void writeDb(data);
   }
   let changed = false;
   if (data.product?.name === 'Rocky Chocolate Hamper') {
@@ -326,12 +328,12 @@ function readDb() {
     changed = true;
   }
   data.nextOptionId = Math.max(Number(data.nextOptionId || 1), ...data.options.map(o => Number(o.id || 0) + 1), 5);
-  if (changed) writeDb(data);
+  if (changed) void writeDb(data);
   return data;
 }
 
-function writeDb(data) {
-  writeStoredDb(data);
+async function writeDb(data) {
+  await writeStoredDb(data);
 }
 
 function money(value) {
@@ -649,37 +651,43 @@ app.get('/checkout', (req, res) => {
   res.send(page(req, 'Checkout', `<main class="container page-grid">${form}<aside class="panel pad checkout-side"><h2>Total</h2>${summary(totals)}</aside></main>`));
 });
 
-app.post('/checkout', (req, res) => {
-  const db = readDb();
-  const items = cart(req);
-  if (!items.length) return res.redirect('/');
-  const nameOk = /^[A-Za-z][A-Za-z ]{1,59}$/.test(String(req.body.customerName || '').trim());
-  const mobileOk = /^[6-9]\d{9}$/.test(req.body.mobile || '');
-  const alternateOk = !req.body.alternateMobile || /^[6-9]\d{9}$/.test(req.body.alternateMobile || '');
-  const pinOk = /^\d{6}$/.test(req.body.pinCode || '');
-  const cityOk = /^[A-Za-z][A-Za-z ]{1,59}$/.test(String(req.body.city || '').trim());
-  if (!nameOk || !req.body.addressLine1 || !cityOk || !req.body.state || !mobileOk || !alternateOk || !pinOk) {
-    flash(req, 'error', 'Please enter a valid name, mobile number, address, city, state, and PIN code.');
-    return res.redirect('/checkout');
+app.post('/checkout', async (req, res) => {
+  try {
+    const db = readDb();
+    const items = cart(req);
+    if (!items.length) return res.redirect('/');
+    const nameOk = /^[A-Za-z][A-Za-z ]{1,59}$/.test(String(req.body.customerName || '').trim());
+    const mobileOk = /^[6-9]\d{9}$/.test(req.body.mobile || '');
+    const alternateOk = !req.body.alternateMobile || /^[6-9]\d{9}$/.test(req.body.alternateMobile || '');
+    const pinOk = /^\d{6}$/.test(req.body.pinCode || '');
+    const cityOk = /^[A-Za-z][A-Za-z ]{1,59}$/.test(String(req.body.city || '').trim());
+    if (!nameOk || !req.body.addressLine1 || !cityOk || !req.body.state || !mobileOk || !alternateOk || !pinOk) {
+      flash(req, 'error', 'Please enter a valid name, mobile number, address, city, state, and PIN code.');
+      return res.redirect('/checkout');
+    }
+    const subtotal = items.reduce((sum, item) => sum + item.lineTotal, 0);
+    const ship = shipping(db.settings, subtotal);
+    const orderId = `RAKHI-${db.nextOrderNumber++}`;
+    const now = new Date().toISOString();
+    const order = {
+      id: crypto.randomUUID(), orderId, createdAt: now, updatedAt: now,
+      customerName: cleanPlainText(req.body.customerName), mobile: req.body.mobile.trim(), alternateMobile: req.body.alternateMobile || '', email: req.body.email || '',
+      addressLine1: cleanPlainText(req.body.addressLine1), addressLine2: cleanPlainText(req.body.addressLine2), landmark: cleanPlainText(req.body.landmark), city: cleanPlainText(req.body.city), state: req.body.state.trim(), pinCode: req.body.pinCode.trim(),
+      customerNotes: cleanPlainText(req.body.customerNotes), adminNotes: '', paymentMethod: 'Cash on Delivery', paymentStatus: 'Pending', orderStatus: 'New Order',
+      courier: '', trackingNumber: '', trackingUrl: '', shippingDate: '', estimatedDeliveryDate: '',
+      items: JSON.parse(JSON.stringify(items)), subtotal, shippingAmount: ship, total: subtotal + ship,
+      statusHistory: [{ status: 'New Order', at: now }]
+    };
+    db.orders.unshift(order);
+    await writeDb(db);
+    req.session.cart = [];
+    req.session.lastOrder = orderId;
+    res.redirect('/success');
+  } catch (e) {
+    console.error('Checkout failed:', e);
+    flash(req, 'error', 'Order could not be placed right now. Please try again or contact us on WhatsApp.');
+    res.redirect('/checkout');
   }
-  const subtotal = items.reduce((sum, item) => sum + item.lineTotal, 0);
-  const ship = shipping(db.settings, subtotal);
-  const orderId = `RAKHI-${db.nextOrderNumber++}`;
-  const now = new Date().toISOString();
-  const order = {
-    id: crypto.randomUUID(), orderId, createdAt: now, updatedAt: now,
-    customerName: cleanPlainText(req.body.customerName), mobile: req.body.mobile.trim(), alternateMobile: req.body.alternateMobile || '', email: req.body.email || '',
-    addressLine1: cleanPlainText(req.body.addressLine1), addressLine2: cleanPlainText(req.body.addressLine2), landmark: cleanPlainText(req.body.landmark), city: cleanPlainText(req.body.city), state: req.body.state.trim(), pinCode: req.body.pinCode.trim(),
-    customerNotes: cleanPlainText(req.body.customerNotes), adminNotes: '', paymentMethod: 'Cash on Delivery', paymentStatus: 'Pending', orderStatus: 'New Order',
-    courier: '', trackingNumber: '', trackingUrl: '', shippingDate: '', estimatedDeliveryDate: '',
-    items: JSON.parse(JSON.stringify(items)), subtotal, shippingAmount: ship, total: subtotal + ship,
-    statusHistory: [{ status: 'New Order', at: now }]
-  };
-  db.orders.unshift(order);
-  writeDb(db);
-  req.session.cart = [];
-  req.session.lastOrder = orderId;
-  res.redirect('/success');
 });
 
 app.get('/success', (req, res) => {
@@ -736,7 +744,7 @@ app.post('/setup-admin', async (req, res) => {
     return res.redirect('/setup-admin');
   }
   db.admins.push({ id: crypto.randomUUID(), name: req.body.name.trim(), email: req.body.email.trim().toLowerCase(), passwordHash: await bcrypt.hash(req.body.password, 12), createdAt: new Date().toISOString() });
-  writeDb(db);
+  await writeDb(db);
   res.redirect('/admin/login');
 });
 
@@ -796,7 +804,7 @@ app.get('/admin/orders/:orderId', requireAdmin, (req, res) => {
   res.send(adminPage(req, order.orderId, `<h1>${esc(order.orderId)}</h1><div class="page-grid"><section class="panel pad"><h2>Customer</h2><p>${esc(order.customerName)}<br>${esc(order.mobile)}<br>${esc(order.email)}</p><p>${esc(order.addressLine1)}, ${esc(order.addressLine2)}<br>${esc(order.city)}, ${esc(order.state)} ${esc(order.pinCode)}</p><h2>Uploaded Image</h2>${orderUploadPreview(order, false)}<h2>Items</h2>${items}<h2>Pricing</h2>${summary({ subtotal: order.subtotal, shipping: order.shippingAmount, total: order.total })}</section><div class="grid">${form}<section class="panel pad"><h2>Email Triggers</h2><ul class="email-log">${notifications}</ul></section></div></div>`));
 });
 
-app.post('/admin/orders/:orderId', requireAdmin, (req, res) => {
+app.post('/admin/orders/:orderId', requireAdmin, async (req, res) => {
   const db = readDb();
   const order = db.orders.find(o => o.orderId === req.params.orderId);
   if (order) {
@@ -806,13 +814,13 @@ app.post('/admin/orders/:orderId', requireAdmin, (req, res) => {
       if (req.body.notifyEmail) appendEmailOutbox(order, previousStatus, req.body.orderStatus);
     }
     Object.assign(order, { orderStatus: req.body.orderStatus, paymentStatus: req.body.paymentStatus, courier: req.body.courier || '', trackingNumber: req.body.trackingNumber || '', trackingUrl: req.body.trackingUrl || '', shippingDate: req.body.shippingDate || '', estimatedDeliveryDate: req.body.estimatedDeliveryDate || '', adminNotes: req.body.adminNotes || '', updatedAt: new Date().toISOString() });
-    writeDb(db);
+    await writeDb(db);
     flash(req, 'success', previousStatus !== req.body.orderStatus && req.body.notifyEmail ? 'Order updated and email trigger queued.' : 'Order updated.');
   }
   res.redirect(`/admin/orders/${req.params.orderId}`);
 });
 
-app.post('/admin/orders/:orderId/status', requireAdmin, (req, res) => {
+app.post('/admin/orders/:orderId/status', requireAdmin, async (req, res) => {
   const db = readDb();
   const order = db.orders.find(o => o.orderId === req.params.orderId);
   if (order && statuses.includes(req.body.orderStatus)) {
@@ -822,7 +830,7 @@ app.post('/admin/orders/:orderId/status', requireAdmin, (req, res) => {
       order.updatedAt = new Date().toISOString();
       order.statusHistory.push({ status: req.body.orderStatus, at: order.updatedAt });
       if (req.body.notifyEmail) appendEmailOutbox(order, previousStatus, req.body.orderStatus);
-      writeDb(db);
+      await writeDb(db);
       flash(req, 'success', req.body.notifyEmail ? `Status changed to ${req.body.orderStatus}; email trigger queued.` : `Status changed to ${req.body.orderStatus}.`);
     } else {
       flash(req, 'success', 'Status already up to date.');
@@ -837,7 +845,7 @@ app.get('/admin/product', requireAdmin, (req, res) => {
   res.send(adminPage(req, 'Product', `<h1>Product Settings</h1><form class="panel grid pad" method="post" action="/admin/product" enctype="multipart/form-data" data-admin-form>${csrfField(req)}<label>Name<input name="name" value="${esc(p.name)}" data-clean="name" data-admin-rule="name" required><small class="field-error" data-error-for="name"></small></label><label>Short Description<textarea name="shortDescription" data-clean="text" data-admin-rule="text">${esc(p.shortDescription)}</textarea><small class="field-error" data-error-for="shortDescription"></small></label><label>Long Description<textarea name="longDescription" data-clean="text" data-admin-rule="text">${esc(p.longDescription)}</textarea><small class="field-error" data-error-for="longDescription"></small></label><div class="grid two"><label>Base Price<input name="basePrice" value="${esc(p.basePrice)}" inputmode="numeric" maxlength="7" data-clean="digits" data-admin-rule="money" required><small class="field-error" data-error-for="basePrice"></small></label><label>Offer Price<input name="offerPrice" value="${esc(p.offerPrice)}" inputmode="numeric" maxlength="7" data-clean="digits" data-admin-rule="optionalMoney"><small class="field-error" data-error-for="offerPrice"></small></label></div><section class="admin-image-tools"><div><span class="config-label">Main Image</span>${p.imagePath ? `<img class="admin-image-preview" src="${esc(p.imagePath)}" alt="Current main product image">` : ''}</div><label>Upload New Main Image<input type="file" name="imageUpload" accept="image/jpeg,image/png,image/webp"></label><label>Main Image Path<input name="imagePath" value="${esc(p.imagePath)}"></label></section><section class="admin-image-tools"><div><span class="config-label">Gallery Images</span><div class="admin-gallery-preview">${galleryPreview}</div></div><label>Add Gallery Images<input type="file" name="galleryUploads" accept="image/jpeg,image/png,image/webp" multiple></label><label>Gallery Image Paths, one per line<textarea name="galleryPaths">${esc((p.galleryPaths || []).join('\n'))}</textarea></label></section><label>Delivery Text<input name="deliveryText" value="${esc(p.deliveryText)}" data-clean="text" data-admin-rule="text"><small class="field-error" data-error-for="deliveryText"></small></label><label>Product Details<textarea name="details" data-clean="text">${esc(p.details || '')}</textarea></label><label>Ingredients<textarea name="ingredients" data-clean="text">${esc(p.ingredients || '')}</textarea></label><label>Care / Storage<textarea name="care" data-clean="text">${esc(p.care || '')}</textarea></label><label>FAQs, one per line as Question|Answer<textarea name="faq">${esc(p.faq || '')}</textarea></label><label><input type="checkbox" name="active" value="1" ${p.active ? 'checked' : ''}> Product active</label><label><input type="checkbox" name="codAvailable" value="1" ${p.codAvailable ? 'checked' : ''}> COD available</label><button type="submit" class="btn primary">Save Product</button></form>`));
 });
 
-app.post('/admin/product', requireAdmin, upload.fields([{ name: 'imageUpload', maxCount: 1 }, { name: 'galleryUploads', maxCount: 12 }]), (req, res) => {
+app.post('/admin/product', requireAdmin, upload.fields([{ name: 'imageUpload', maxCount: 1 }, { name: 'galleryUploads', maxCount: 12 }]), async (req, res) => {
   try { assertCsrf(req); } catch (e) { flash(req, 'error', e.message); return res.redirect('/admin/product'); }
   const db = readDb();
   try {
@@ -850,7 +858,7 @@ app.post('/admin/product', requireAdmin, upload.fields([{ name: 'imageUpload', m
     const offerPrice = parseMoneyField(req.body.offerPrice, 'Offer Price');
     if (offerPrice && offerPrice >= basePrice) throw new Error('Offer Price must be lower than Base Price. Leave it blank when there is no discount.');
     Object.assign(db.product, { name, shortDescription: cleanPlainText(req.body.shortDescription), longDescription: cleanPlainText(req.body.longDescription), basePrice, offerPrice, imagePath: uploadedPublicPath(mainUpload) || normalizePublicPath(req.body.imagePath), galleryPaths: [...typedGallery, ...uploadedGallery].filter((value, index, arr) => arr.indexOf(value) === index), active: Boolean(req.body.active), codAvailable: Boolean(req.body.codAvailable), deliveryText: cleanPlainText(req.body.deliveryText), details: cleanPlainText(req.body.details), ingredients: cleanPlainText(req.body.ingredients), care: cleanPlainText(req.body.care), faq: req.body.faq });
-    writeDb(db);
+    await writeDb(db);
     flash(req, 'success', 'Product updated.');
   } catch (e) {
     flash(req, 'error', e.message);
@@ -866,12 +874,12 @@ app.get('/admin/customizations', requireAdmin, (req, res) => {
   res.send(adminPage(req, 'Customizations', `<h1>Customizations</h1><p class="lead">Control every field shown in the storefront configurator. Active options appear automatically on the product page in display order.</p><div class="admin-options">${editCards}</div>${form}`));
 });
 
-app.post('/admin/customizations', requireAdmin, (req, res) => {
+app.post('/admin/customizations', requireAdmin, async (req, res) => {
   const db = readDb();
   try {
     const title = requireName(req.body.title, 'Customization title');
     db.options.push({ id: db.nextOptionId++, title, description: cleanPlainText(req.body.description), type: requireOptionType(req.body.type), choices: cleanLines(req.body.choices), price: parseMoneyField(req.body.price, 'Price') || 0, required: Boolean(req.body.required), active: Boolean(req.body.active), uploadRequired: Boolean(req.body.uploadRequired), order: parseWholeNumberField(req.body.order, 'Display Order', 50), maxLength: parseWholeNumberField(req.body.maxLength, 'Character Limit', 0) || '', placeholder: cleanPlainText(req.body.placeholder) });
-    writeDb(db);
+    await writeDb(db);
     flash(req, 'success', 'Customization saved.');
   } catch (e) {
     flash(req, 'error', e.message);
@@ -879,7 +887,7 @@ app.post('/admin/customizations', requireAdmin, (req, res) => {
   res.redirect('/admin/customizations');
 });
 
-app.post('/admin/customizations/update', requireAdmin, (req, res) => {
+app.post('/admin/customizations/update', requireAdmin, async (req, res) => {
   const db = readDb();
   const option = db.options.find(o => String(o.id) === String(req.body.id));
   if (option) {
@@ -898,7 +906,7 @@ app.post('/admin/customizations/update', requireAdmin, (req, res) => {
         maxLength: parseWholeNumberField(req.body.maxLength, 'Character Limit', 0) || '',
         placeholder: cleanPlainText(req.body.placeholder)
       });
-      writeDb(db);
+      await writeDb(db);
       flash(req, 'success', 'Customization updated.');
     } catch (e) {
       flash(req, 'error', e.message);
@@ -907,10 +915,10 @@ app.post('/admin/customizations/update', requireAdmin, (req, res) => {
   res.redirect('/admin/customizations');
 });
 
-app.post('/admin/customizations/delete', requireAdmin, (req, res) => {
+app.post('/admin/customizations/delete', requireAdmin, async (req, res) => {
   const db = readDb();
   db.options = db.options.filter(o => String(o.id) !== String(req.body.id));
-  writeDb(db);
+  await writeDb(db);
   flash(req, 'success', 'Customization deleted.');
   res.redirect('/admin/customizations');
 });
@@ -920,12 +928,12 @@ app.get('/admin/settings', requireAdmin, (req, res) => {
   res.send(adminPage(req, 'Settings', `<h1>Store Settings</h1><form class="panel grid pad" method="post" action="/admin/settings" data-admin-form>${csrfField(req)}<label>Store Name<input name="storeName" value="${esc(s.storeName)}" data-clean="name" data-admin-rule="name" required><small class="field-error" data-error-for="storeName"></small></label><label>Logo Path<input name="logoPath" value="${esc(s.logoPath)}"></label><div class="grid two"><label>Contact Phone<input name="contactPhone" value="${esc(s.contactPhone)}" data-clean="phone" inputmode="tel"></label><label>WhatsApp<input name="whatsappNumber" value="${esc(s.whatsappNumber)}" data-clean="phone" inputmode="tel"></label></div><label>Support Email<input type="email" name="supportEmail" value="${esc(s.supportEmail)}"></label><label>Store Address<textarea name="storeAddress" data-clean="text">${esc(s.storeAddress)}</textarea></label><div class="grid two"><label>Shipping Fee<input name="shippingFee" value="${esc(s.shippingFee)}" inputmode="numeric" maxlength="7" data-clean="digits" data-admin-rule="optionalMoney"><small class="field-error" data-error-for="shippingFee"></small></label><label>Free Shipping Minimum<input name="freeShippingMinimum" value="${esc(s.freeShippingMinimum)}" inputmode="numeric" maxlength="7" data-clean="digits" data-admin-rule="optionalMoney"><small class="field-error" data-error-for="freeShippingMinimum"></small></label></div><label><input type="checkbox" name="freeShippingEnabled" value="1" ${s.freeShippingEnabled ? 'checked' : ''}> Enable free shipping threshold</label><label><input type="checkbox" name="codEnabled" value="1" ${s.codEnabled ? 'checked' : ''}> COD enabled</label><label>Delivery Text<input name="deliveryText" value="${esc(s.deliveryText)}" data-clean="text"></label><button class="btn primary">Save Settings</button></form>`));
 });
 
-app.post('/admin/settings', requireAdmin, (req, res) => {
+app.post('/admin/settings', requireAdmin, async (req, res) => {
   const db = readDb();
   try {
     const storeName = requireName(req.body.storeName, 'Store name');
     Object.assign(db.settings, { storeName, logoPath: normalizePublicPath(req.body.logoPath), contactPhone: String(req.body.contactPhone || '').replace(/[^\d+\s()-]/g, '').trim(), whatsappNumber: String(req.body.whatsappNumber || '').replace(/[^\d+\s()-]/g, '').trim(), supportEmail: String(req.body.supportEmail || '').trim(), storeAddress: cleanPlainText(req.body.storeAddress), shippingFee: parseMoneyField(req.body.shippingFee, 'Shipping Fee') || 0, freeShippingEnabled: Boolean(req.body.freeShippingEnabled), freeShippingMinimum: parseMoneyField(req.body.freeShippingMinimum, 'Free Shipping Minimum') || 0, codEnabled: Boolean(req.body.codEnabled), deliveryText: cleanPlainText(req.body.deliveryText) });
-    writeDb(db);
+    await writeDb(db);
     flash(req, 'success', 'Settings updated.');
   } catch (e) {
     flash(req, 'error', e.message);
@@ -938,6 +946,13 @@ app.get('/sitemap.xml', (_, res) => res.type('application/xml').send('<?xml vers
 
 app.use((req, res) => res.status(404).send(page(req, 'Page Not Found', '<main class="container"><section class="panel pad"><h1>Page not found</h1><a class="btn primary" href="/">Back home</a></section></main>')));
 
-app.listen(PORT, () => {
-  console.log(`Chocomedley running at http://localhost:${PORT}`);
-});
+initStorage()
+  .then(() => {
+    app.listen(PORT, () => {
+      console.log(`Chocomedley running at http://localhost:${PORT}`);
+    });
+  })
+  .catch(error => {
+    console.error('Failed to initialize production storage:', error);
+    process.exit(1);
+  });

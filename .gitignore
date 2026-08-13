@@ -1,12 +1,7 @@
 config.php
 node_modules/
 data/store.json
-data/*.sqlite
-data/*.sqlite-journal
 data/sessions.json
-storage/*.sqlite
-*.sqlite
-*.sqlite-journal
 storage/logs/*.log
 public/uploads/*
 !public/uploads/.htaccess

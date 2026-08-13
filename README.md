@@ -6,6 +6,7 @@ A deploy-ready Hostinger Business Node.js single-product e-commerce site for the
 
 - Node.js 18+
 - Hostinger Business hosting with Node.js app support
+- Hostinger MySQL database
 - Writable folders:
   - `data`
   - `public/uploads`
@@ -30,16 +31,23 @@ Open:
 3. Set the app root to this project folder.
 4. Set startup file to `server.js`.
 5. Run `npm install`.
-6. Add environment variables:
+6. Create a MySQL database in Hostinger hPanel.
+7. Add environment variables:
    - `NODE_ENV`: `production`
    - `SESSION_SECRET`: a long random secret
+   - `DB_DRIVER`: `mysql`
+   - `DB_HOST`: Hostinger database host, usually `localhost`
+   - `DB_PORT`: `3306`
+   - `DB_USER`: Hostinger database user
+   - `DB_PASSWORD`: Hostinger database password
+   - `DB_NAME`: Hostinger database name
    - `DATA_DIR`: a persistent writable folder outside auto-replaced code, for example `/home/USERNAME/chocomedley-data`
    - `UPLOAD_DIR`: a persistent writable folder, for example `/home/USERNAME/chocomedley-uploads`
    - `ADMIN_SETUP_ENABLED`: `true` for first setup, then `false`
    - `PORT`: Hostinger may set this automatically
-7. Start/restart the Node.js app.
-8. Visit `/setup-admin` once and create the admin account.
-9. Change `ADMIN_SETUP_ENABLED` to `false` and restart the app.
+8. Start/restart the Node.js app.
+9. Visit `/setup-admin` once and create the admin account.
+10. Change `ADMIN_SETUP_ENABLED` to `false` and restart the app.
 
 Alternative admin bootstrap:
 
@@ -52,9 +60,9 @@ Do not set `ADMIN_AUTH_DISABLED=true` on production. That opens admin without lo
 
 ## Data Storage
 
-The app stores operational data in `data/store.json` and customer uploads in `public/uploads`. Back up both folders regularly from Hostinger.
+Production stores product settings, admin accounts, orders, tracking data, and customizations in Hostinger MySQL. Customer uploads are stored in `UPLOAD_DIR`. Back up both the MySQL database and uploads regularly from Hostinger.
 
-Do not publish a real `data/store.json` with customer orders or admin accounts to a public repository. For free preview hosts, use fresh runtime paths such as `DATA_DIR=/tmp/chocomedley-data` and `UPLOAD_DIR=/tmp/chocomedley-uploads`.
+Do not publish customer data, database exports, uploaded images, or admin credentials to a public repository. For free preview hosts only, the app can use JSON fallback with fresh runtime paths such as `DATA_DIR=/tmp/chocomedley-data` and `UPLOAD_DIR=/tmp/chocomedley-uploads`.
 
 ## Free Preview Deployment
 
