@@ -10,31 +10,69 @@ function initProduct() {
   const totalEls = document.querySelectorAll('[data-live-total]');
   const breakdown = document.querySelector('[data-breakdown]');
 
+  function quantity() {
+    const qty = Math.max(1, Math.min(maxQuantity, Number(qtyInput.value || 1)));
+    qtyInput.value = qty;
+    return qty;
+  }
+
+  function clampAddons(qty) {
+    form.querySelectorAll('[data-addon-quantity]').forEach(box => {
+      const input = box.querySelector('[data-addon-input]');
+      const display = box.querySelector('[data-addon-display]');
+      const next = Math.max(0, Math.min(qty, Number(input.value || 0)));
+      input.value = next;
+      if (display) display.textContent = String(next);
+    });
+  }
+
+  function syncUploadLimits(qty) {
+    form.querySelectorAll('input[type="file"][multiple]').forEach(input => {
+      const title = input.closest('.upload-box')?.querySelector('[data-upload-title]');
+      if (title) title.textContent = `Attach up to ${qty} image${qty === 1 ? '' : 's'}`;
+    });
+  }
+
   function selectedOptions() {
     return [...form.querySelectorAll('[data-option]')].filter(box => {
       const checked = box.querySelector('input[type="checkbox"]:checked, input[type="radio"]:checked');
       const file = box.querySelector('input[type="file"]');
+      const countedAddon = box.querySelector('[data-addon-input]');
       const text = box.querySelector('textarea, input:not([type]), input[type="text"]');
+      if (countedAddon) return Number(countedAddon.value || 0) > 0;
       if (checked) return true;
       if (file) return file.files.length > 0;
       if (text) return String(text.value || '').trim() !== '';
       return false;
-    }).map(box => ({ title: box.dataset.title, price: Number(box.dataset.price) }));
+    }).map(box => {
+      const price = Number(box.dataset.price);
+      const file = box.querySelector('input[type="file"]');
+      const countedAddon = box.querySelector('[data-addon-input]');
+      if (countedAddon) {
+        const count = Number(countedAddon.value || 0);
+        return { title: `${box.dataset.title} x ${count}`, price: price * count };
+      }
+      if (file) {
+        const count = Math.min(quantity(), file.files.length);
+        return { title: `${box.dataset.title} x ${count}`, price: price * count };
+      }
+      return { title: box.dataset.title, price };
+    });
   }
 
   function recalc() {
-    const qty = Math.max(1, Math.min(maxQuantity, Number(qtyInput.value || 1)));
-    qtyInput.value = qty;
+    const qty = quantity();
+    clampAddons(qty);
+    syncUploadLimits(qty);
     const options = selectedOptions();
-    const perUnit = base + options.reduce((sum, item) => sum + item.price, 0);
-    const subtotal = perUnit * qty;
+    const addons = options.reduce((sum, item) => sum + item.price, 0);
+    const subtotal = (base * qty) + addons;
     const total = subtotal + shipping;
     totalEls.forEach(el => el.textContent = money(total));
     if (breakdown) {
       breakdown.innerHTML = [
-        `<span>Base hamper</span><strong>${money(base)}</strong>`,
+        `<span>Base hamper x ${qty}</span><strong>${money(base * qty)}</strong>`,
         ...options.map(item => `<span>${item.title}</span><strong>${money(item.price)}</strong>`),
-        `<span>Quantity</span><strong>${qty}</strong>`,
         `<span>Shipping</span><strong>${money(shipping)}</strong>`,
       ].join('');
     }
@@ -46,7 +84,14 @@ function initProduct() {
   form.addEventListener('input', recalc);
   form.addEventListener('change', event => {
     if (event.target.type === 'file') {
-      const name = event.target.files[0]?.name || 'No file selected';
+      const qty = quantity();
+      if (event.target.files.length > qty) {
+        const transfer = new DataTransfer();
+        [...event.target.files].slice(0, qty).forEach(file => transfer.items.add(file));
+        event.target.files = transfer.files;
+      }
+      const count = event.target.files.length;
+      const name = count ? `${count} image${count === 1 ? '' : 's'} selected` : 'No files selected';
       event.target.closest('.upload-box')?.querySelector('[data-file-name]')?.replaceChildren(document.createTextNode(name));
     }
     recalc();
@@ -58,7 +103,13 @@ function initProduct() {
     update();
   });
   document.querySelectorAll('[data-qty]').forEach(btn => btn.addEventListener('click', () => {
-    qtyInput.value = Math.max(1, Math.min(maxQuantity, Number(qtyInput.value || 1) + Number(btn.dataset.qty)));
+    qtyInput.value = Math.max(1, Math.min(maxQuantity, quantity() + Number(btn.dataset.qty)));
+    recalc();
+  }));
+  form.querySelectorAll('[data-addon-delta]').forEach(btn => btn.addEventListener('click', () => {
+    const input = btn.closest('[data-addon-quantity]')?.querySelector('[data-addon-input]');
+    if (!input) return;
+    input.value = Math.max(0, Math.min(quantity(), Number(input.value || 0) + Number(btn.dataset.addonDelta)));
     recalc();
   }));
   document.querySelectorAll('[data-thumb]').forEach(btn => btn.addEventListener('click', () => {

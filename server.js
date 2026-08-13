@@ -16,6 +16,8 @@ function isPlaceholderText(value) {
 
 function loadPrivateEnvFile() {
   const root = __dirname;
+  const onHostinger = root.startsWith('/home/u810694964/') || process.cwd().startsWith('/home/u810694964/');
+  if (process.env.NODE_ENV !== 'production' && !process.env.PRIVATE_ENV_FILE && !onHostinger) return;
   const candidates = [
     process.env.PRIVATE_ENV_FILE,
     path.join(root, 'hostinger.env'),
@@ -123,7 +125,7 @@ const PRODUCT_IMAGES = [
   '/img/WhatsApp Image 2026-08-11 at 7.49.51 PM.jpeg',
   '/img/WhatsApp Image 2026-08-11 at 7.56.50 PM.jpeg'
 ];
-const ASSET_VERSION = 'premium-20260813-17';
+const ASSET_VERSION = 'premium-20260813-18';
 const DEMO_ADMIN_EMAIL = process.env.DEMO_ADMIN_EMAIL || 'admin@chocomedley.in';
 const IS_RENDER = Boolean(process.env.RENDER || process.env.RENDER_EXTERNAL_URL || process.env.RENDER_SERVICE_ID);
 const DEMO_ADMIN_ENABLED = process.env.DEMO_ADMIN_ENABLED === 'true' || IS_RENDER || process.env.NODE_ENV !== 'production';
@@ -132,7 +134,7 @@ const DEMO_ADMIN_ALLOW_ANY_LOGIN = process.env.DEMO_ADMIN_ALLOW_ANY_LOGIN === 't
 const ADMIN_AUTH_DISABLED = process.env.ADMIN_AUTH_DISABLED === 'true';
 const SESSION_SECRET = !isPlaceholderValue(process.env.SESSION_SECRET)
   ? process.env.SESSION_SECRET
-  : '';
+  : process.env.NODE_ENV === 'production' ? '' : 'development-session-secret';
 const INDIA_STATES = [
   'Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh', 'Goa', 'Gujarat', 'Haryana',
   'Himachal Pradesh', 'Jharkhand', 'Karnataka', 'Kerala', 'Madhya Pradesh', 'Maharashtra', 'Manipur',
@@ -773,10 +775,13 @@ function optionField(opt) {
   const required = opt.required ? 'required' : '';
   const max = opt.maxLength ? `maxlength="${Number(opt.maxLength)}" data-counted` : '';
   const placeholder = opt.placeholder ? `placeholder="${esc(opt.placeholder)}"` : '';
-  if (opt.type === 'checkbox') {
+  const isAlmonds = /almond/i.test(opt.title);
+  if (opt.type === 'checkbox' && isAlmonds) {
+    control = `<div class="addon-quantity" data-addon-quantity><input type="hidden" name="${name}" value="0" data-addon-input><div><strong>Choose almond boxes</strong><small>Pick 0, 1, or any number up to your hamper quantity.</small></div><div class="mini-stepper"><button type="button" data-addon-delta="-1" aria-label="Decrease almonds">-</button><span data-addon-display>0</span><button type="button" data-addon-delta="1" aria-label="Increase almonds">+</button></div></div>`;
+  } else if (opt.type === 'checkbox') {
     control = `<label class="choice-card add-on-card"><input type="checkbox" name="${name}" value="1"><span><b>Add</b><strong>${esc(opt.title)}</strong><small>${Number(opt.price) ? `+${money(opt.price)}` : 'Included'}</small></span></label>`;
   } else if (opt.type === 'file') {
-    control = `<label class="upload-box"><input type="file" name="${name}" accept="image/jpeg,image/png,image/webp" ${required}><span class="upload-icon">Upload</span><span><strong>Choose photo</strong><small>JPG, PNG or WEBP up to 5 MB</small></span><em data-file-name>No file selected</em></label>`;
+    control = `<label class="upload-box premium-upload"><input type="file" name="${name}" accept="image/jpeg,image/png,image/webp" multiple ${required}><span class="upload-icon">Upload</span><span><strong data-upload-title>Attach up to 1 image</strong><small>JPG, PNG or WEBP. Add one image per hamper if needed.</small></span><em data-file-name>No files selected</em></label>`;
   } else if (opt.type === 'textarea') {
     control = `<label class="field-wrap"><textarea name="${name}" ${required} ${max} ${placeholder}></textarea>${opt.maxLength ? `<small class="counter"><span data-count-for="${name}">0</span>/${Number(opt.maxLength)}</small>` : ''}</label>`;
   } else if (opt.type === 'select') {
@@ -784,7 +789,7 @@ function optionField(opt) {
   } else {
     control = `<label class="field-wrap"><input name="${name}" ${required} ${max} ${placeholder}>${opt.maxLength ? `<small class="counter"><span data-count-for="${name}">0</span>/${Number(opt.maxLength)}</small>` : ''}</label>`;
   }
-  return `<section class="config-option" data-option data-title="${esc(opt.title)}" data-price="${Number(opt.price)}"><div class="config-head"><div><span class="config-label">${esc(opt.title)}${opt.required ? ' *' : ''}</span><p>${esc(opt.description)}</p></div><strong>${Number(opt.price) ? `+${money(opt.price)}` : 'Free'}</strong></div>${control}</section>`;
+  return `<section class="config-option premium-option" data-option data-title="${esc(opt.title)}" data-price="${Number(opt.price)}" data-option-type="${esc(opt.type)}" data-counted-addon="${isAlmonds ? 'true' : 'false'}"><div class="config-head"><div><span class="config-label">${esc(opt.title)}${opt.required ? ' *' : ''}</span><p>${esc(opt.description)}</p></div><strong>${Number(opt.price) ? `+${money(opt.price)}` : 'Free'}</strong></div>${control}</section>`;
 }
 
 app.get('/', (req, res) => {
@@ -792,11 +797,11 @@ app.get('/', (req, res) => {
   if (!db.product.active) return res.status(503).send(page(req, 'Unavailable', `<main class="container"><section class="panel pad"><h1>Rakhi Hamper is unavailable</h1></section></main>`));
   const base = sellingPrice(db.product);
   const hasOffer = hasValidOffer(db.product);
-  const priceHtml = hasOffer ? `<div class="price-strip has-offer"><strong>${money(base)}</strong><small>Offer price</small><del>${money(db.product.basePrice)}</del></div>` : `<div class="price-strip"><strong>${money(base)}</strong><small>Base price</small></div>`;
+  const priceHtml = hasOffer ? `<div class="price-strip has-offer"><div><span class="panel-kicker">Today's price</span><strong>${money(base)}</strong></div><del>${money(db.product.basePrice)}</del><small>Limited offer</small></div>` : `<div class="price-strip"><div><span class="panel-kicker">Price</span><strong>${money(base)}</strong></div><small>Base price</small></div>`;
   const initialTotal = base + shipping(db.settings, base);
   const gallery = [db.product.imagePath, ...(db.product.galleryPaths || [])].filter(Boolean).filter((value, index, arr) => arr.indexOf(value) === index);
   const thumbs = gallery.map((src, index) => `<button type="button" data-thumb data-src="${esc(src)}" aria-label="View image ${index + 1}"><img src="${esc(src)}" alt="${esc(db.product.name)} view ${index + 1}"></button>`).join('');
-  const body = `<main class="storefront">${flashHtml(req)}<section class="product-section"><div class="product-shell"><div class="product-media"><div class="gallery-main"><button class="gallery-arrow" type="button" data-gallery-prev aria-label="Previous image">‹</button><img data-main-image src="${esc(gallery[0])}" alt="${esc(db.product.name)}"><button class="gallery-arrow next" type="button" data-gallery-next aria-label="Next image">›</button></div><div class="thumbs">${thumbs}</div></div><form class="product-panel configurator" method="post" action="/cart/add" enctype="multipart/form-data" data-product-form data-base-price="${base}" data-shipping="${shipping(db.settings, base)}">${csrfField(req)}<div class="product-title-block"><span class="panel-kicker">Personalized Chocolate Hamper</span><h2>${esc(db.product.name)}</h2><div class="rating-line"><span>★★★★★</span><strong>4.9</strong><small>Made fresh for gifting</small></div><p>${esc(db.product.shortDescription)}</p><div class="mini-trust"><span>COD available</span><span>Dispatch in 1-2 days</span><span>Photo print</span></div></div>${priceHtml}<div class="config-stack"><section class="config-option quantity-option"><div class="config-head"><div><span class="config-label">Quantity</span><p>Select hamper count</p></div></div><span class="qty"><button type="button" data-qty="-1" aria-label="Decrease quantity">-</button><input name="quantity" value="1" readonly aria-label="Quantity"><button type="button" data-qty="1" aria-label="Increase quantity">+</button></span></section>${activeOptions(db).map(optionField).join('')}</div><div class="checkout-dock"><div class="total-row"><span>Total</span><strong data-live-total>${money(initialTotal)}</strong></div><div class="actions"><button type="submit" class="btn primary" formaction="/cart/add">Add to Cart</button><button type="submit" class="btn dark" formaction="/buy-now">Buy Now</button></div><div class="breakdown" data-breakdown></div></div></form></div></section>${bottomContent(db)}</main>${cartDrawer(req, req.query.cart === 'open')}<div class="mobile-bar"><strong data-live-total>${money(initialTotal)}</strong><button type="button" class="btn primary" onclick="document.querySelector('[data-product-form] button[formaction=&quot;/cart/add&quot;]').click()">Add to Cart</button></div>`;
+  const body = `<main class="storefront">${flashHtml(req)}<section class="product-section"><div class="product-shell"><div class="product-media"><div class="gallery-main"><button class="gallery-arrow" type="button" data-gallery-prev aria-label="Previous image">‹</button><img data-main-image src="${esc(gallery[0])}" alt="${esc(db.product.name)}"><button class="gallery-arrow next" type="button" data-gallery-next aria-label="Next image">›</button></div><div class="thumbs">${thumbs}</div></div><form class="product-panel configurator premium-configurator" method="post" action="/cart/add" enctype="multipart/form-data" data-product-form data-base-price="${base}" data-shipping="${shipping(db.settings, base)}">${csrfField(req)}<div class="product-title-block"><span class="panel-kicker">Personalized Chocolate Hamper</span><h2>${esc(db.product.name)}</h2><div class="rating-line"><span>★★★★★</span><strong>4.9</strong><small>Made fresh for gifting</small></div><p>${esc(db.product.shortDescription)}</p><div class="mini-trust"><span>COD available</span><span>Dispatch in 1-2 days</span><span>Photo print</span></div></div>${priceHtml}<div class="config-stack"><section class="config-option premium-option quantity-option"><div class="config-head"><div><span class="config-label">Quantity</span><p>Choose how many hampers you want.</p></div></div><span class="qty premium-qty"><button type="button" data-qty="-1" aria-label="Decrease quantity">-</button><input name="quantity" value="1" readonly aria-label="Quantity"><button type="button" data-qty="1" aria-label="Increase quantity">+</button></span></section>${activeOptions(db).map(optionField).join('')}</div><div class="checkout-dock"><div class="total-row"><span>Total</span><strong data-live-total>${money(initialTotal)}</strong></div><div class="actions"><button type="submit" class="btn primary" formaction="/cart/add">Add to Cart</button><button type="submit" class="btn dark" formaction="/buy-now">Buy Now</button></div><div class="breakdown" data-breakdown></div></div></form></div></section>${bottomContent(db)}</main>${cartDrawer(req, req.query.cart === 'open')}<div class="mobile-bar"><strong data-live-total>${money(initialTotal)}</strong><button type="button" class="btn primary" onclick="document.querySelector('[data-product-form] button[formaction=&quot;/cart/add&quot;]').click()">Add to Cart</button></div>`;
   res.send(page(req, db.product.name, body));
 });
 
@@ -816,18 +821,34 @@ function bottomContent(db) {
 }
 
 function selectedCustomizations(req, files, db) {
-  return activeOptions(db).map(opt => {
+  const quantity = Math.max(1, Math.min(99, Number(String(req.body.quantity || 1).replace(/\D/g, '') || 1)));
+  return activeOptions(db).flatMap(opt => {
     const value = req.body[`option_${opt.id}`];
-    const file = files.find(f => f.fieldname === `option_${opt.id}`);
+    const optionFiles = files.filter(f => f.fieldname === `option_${opt.id}`).slice(0, quantity);
     let chosen = false;
     let text = '';
     let uploadedPath = '';
     let originalName = '';
+    if (opt.type === 'checkbox' && /almond/i.test(opt.title)) {
+      const count = Math.max(0, Math.min(quantity, Number(String(value || 0).replace(/\D/g, '') || 0)));
+      return count > 0 ? [{ optionId: opt.id, title: opt.title, type: 'count', value: `${count} of ${quantity} hamper${quantity === 1 ? '' : 's'}`, count, price: Number(opt.price || 0) * count, unitPrice: Number(opt.price || 0) }] : [];
+    }
     if (opt.type === 'checkbox') { chosen = value === '1'; text = chosen ? 'Yes' : ''; }
-    else if (opt.type === 'file') { chosen = Boolean(file); text = file ? file.originalname : ''; uploadedPath = file ? `/uploads/${file.filename}` : ''; originalName = file ? file.originalname : ''; }
+    else if (opt.type === 'file') {
+      if (opt.required && !optionFiles.length) throw new Error(`${opt.title} is required.`);
+      return optionFiles.map((file, index) => ({
+        optionId: opt.id,
+        title: optionFiles.length > 1 ? `${opt.title} ${index + 1}` : opt.title,
+        type: opt.type,
+        value: file.originalname,
+        price: Number(opt.price || 0),
+        uploadedPath: `/uploads/${file.filename}`,
+        originalName: file.originalname
+      }));
+    }
     else { text = String(value || '').trim(); chosen = text.length > 0; }
     if (opt.required && !chosen) throw new Error(`${opt.title} is required.`);
-    return chosen ? { optionId: opt.id, title: opt.title, type: opt.type, value: text, price: Number(opt.price || 0), uploadedPath, originalName } : null;
+    return chosen ? [{ optionId: opt.id, title: opt.title, type: opt.type, value: text, price: Number(opt.price || 0), uploadedPath, originalName }] : [];
   }).filter(Boolean);
 }
 
@@ -838,7 +859,7 @@ function addLine(req, files) {
   const customizations = selectedCustomizations(req, files, db);
   const basePrice = sellingPrice(db.product);
   const customizationTotal = customizations.reduce((sum, c) => sum + c.price, 0);
-  const lineTotal = (basePrice + customizationTotal) * quantity;
+  const lineTotal = (basePrice * quantity) + customizationTotal;
   return { key: crypto.randomBytes(8).toString('hex'), productId: db.product.id, productName: db.product.name, productImage: db.product.imagePath, basePrice, quantity, customizations, customizationTotal, lineTotal };
 }
 
@@ -871,7 +892,16 @@ app.post('/cart/update', (req, res) => {
       const nextQuantity = Math.max(1, Math.min(99, requestedQuantity));
       updated = item.quantity !== nextQuantity;
       item.quantity = nextQuantity;
-      item.lineTotal = (Number(item.basePrice) + Number(item.customizationTotal)) * item.quantity;
+      item.customizations = (item.customizations || []).map(customization => {
+        if (customization.type !== 'count' || !customization.unitPrice) return customization;
+        const nextCount = Math.max(0, Math.min(nextQuantity, Number(customization.count || 0)));
+        customization.count = nextCount;
+        customization.value = `${nextCount} of ${nextQuantity} hamper${nextQuantity === 1 ? '' : 's'}`;
+        customization.price = Number(customization.unitPrice) * nextCount;
+        return customization;
+      }).filter(customization => customization.type !== 'count' || Number(customization.count || 0) > 0);
+      item.customizationTotal = (item.customizations || []).reduce((sum, customization) => sum + Number(customization.price || 0), 0);
+      item.lineTotal = (Number(item.basePrice) * item.quantity) + Number(item.customizationTotal);
     }
     return item;
   });
