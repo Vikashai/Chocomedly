@@ -13,6 +13,12 @@ app.set('trust proxy', 1);
 const PORT = Number(process.env.PORT) || 3000;
 const ROOT = __dirname;
 const DB_DRIVER = String(process.env.DB_DRIVER || 'json').toLowerCase();
+const HOSTINGER_DEFAULTS = {
+  dbHost: '127.0.0.1',
+  dbUser: 'u810694964_user',
+  dbName: 'u810694964_prod',
+  accountHome: '/home/u810694964'
+};
 
 function isPlaceholderValue(value) {
   const text = String(value || '').trim();
@@ -46,13 +52,22 @@ function ensureWritableDir(label, candidates) {
   throw new Error(`${label} has no writable directory. ${attempts.join('; ')}`);
 }
 
+function productionDefaultDir(name) {
+  if (process.env.NODE_ENV !== 'production') return '';
+  if (name === 'DATA_DIR') return path.join(HOSTINGER_DEFAULTS.accountHome, 'chocomedley-runtime');
+  if (name === 'UPLOAD_DIR') return path.join(HOSTINGER_DEFAULTS.accountHome, 'chocomedley-uploads');
+  return '';
+}
+
 const DATA_DIR = ensureWritableDir('DATA_DIR', [
   configuredDir('DATA_DIR'),
+  productionDefaultDir('DATA_DIR'),
   path.join(ROOT, 'data'),
   path.join(os.tmpdir(), 'chocomedley-runtime')
 ]);
 const UPLOAD_DIR = ensureWritableDir('UPLOAD_DIR', [
   configuredDir('UPLOAD_DIR'),
+  productionDefaultDir('UPLOAD_DIR'),
   path.join(ROOT, 'public', 'uploads'),
   path.join(os.tmpdir(), 'chocomedley-uploads')
 ]);
@@ -345,11 +360,26 @@ let mysqlPool = null;
 let dbCache = null;
 
 function mysqlConfig() {
-  const missing = ['DB_HOST', 'DB_USER', 'DB_PASSWORD', 'DB_NAME'].filter(key => isPlaceholderValue(process.env[key]));
+  const raw = {
+    DB_HOST: process.env.DB_HOST,
+    DB_USER: process.env.DB_USER,
+    DB_PASSWORD: process.env.DB_PASSWORD,
+    DB_NAME: process.env.DB_NAME
+  };
+  const resolved = {
+    DB_HOST: isPlaceholderValue(raw.DB_HOST) ? HOSTINGER_DEFAULTS.dbHost : String(raw.DB_HOST).trim(),
+    DB_USER: isPlaceholderValue(raw.DB_USER) ? HOSTINGER_DEFAULTS.dbUser : String(raw.DB_USER).trim(),
+    DB_PASSWORD: raw.DB_PASSWORD,
+    DB_NAME: isPlaceholderValue(raw.DB_NAME) ? HOSTINGER_DEFAULTS.dbName : String(raw.DB_NAME).trim()
+  };
+  for (const key of ['DB_HOST', 'DB_USER', 'DB_NAME']) {
+    if (isPlaceholderValue(raw[key])) console.warn(`[boot] ${key} is missing or placeholder; using Hostinger production default ${resolved[key]}.`);
+  }
+  const missing = ['DB_PASSWORD'].filter(key => isPlaceholderValue(resolved[key]));
   if (missing.length) {
     throw new Error(`DB_DRIVER=mysql but these environment variables are missing or still placeholders: ${missing.join(', ')}`);
   }
-  let host = String(process.env.DB_HOST).trim();
+  let host = resolved.DB_HOST;
   if (host === 'localhost') {
     host = '127.0.0.1';
     console.warn('[boot] DB_HOST=localhost resolves to ::1 on this host; connecting to 127.0.0.1 instead.');
@@ -357,9 +387,9 @@ function mysqlConfig() {
   return {
     host,
     port: Number(process.env.DB_PORT || 3306),
-    user: String(process.env.DB_USER).trim(),
-    password: process.env.DB_PASSWORD,
-    database: String(process.env.DB_NAME).trim(),
+    user: resolved.DB_USER,
+    password: resolved.DB_PASSWORD,
+    database: resolved.DB_NAME,
     waitForConnections: true,
     connectionLimit: Number(process.env.DB_CONNECTION_LIMIT || 5),
     connectTimeout: 15000,
