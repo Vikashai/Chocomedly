@@ -20,7 +20,7 @@ const PRODUCT_IMAGES = [
   '/img/WhatsApp Image 2026-08-11 at 7.49.51 PM.jpeg',
   '/img/WhatsApp Image 2026-08-11 at 7.56.50 PM.jpeg'
 ];
-const ASSET_VERSION = 'premium-20260813-5';
+const ASSET_VERSION = 'premium-20260813-6';
 const LOG_DIR = path.join(ROOT, 'storage', 'logs');
 const INDIA_STATES = [
   'Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh', 'Goa', 'Gujarat', 'Haryana',
@@ -207,6 +207,35 @@ function whatsappUrl(settings, message = '') {
 function whatsappCta(settings, label, message, extraClass = '') {
   const url = whatsappUrl(settings, message);
   return url ? `<a class="btn whatsapp ${extraClass}" href="${esc(url)}" target="_blank" rel="noopener">${esc(label)}</a>` : '';
+}
+
+function cleanPlainText(value = '') {
+  return String(value || '').replace(/[^\p{L}\p{N}\s.,'&()/-]/gu, '').replace(/\s+/g, ' ').trim();
+}
+
+function cleanName(value = '') {
+  return String(value || '').replace(/[^\p{L}\p{N}\s&()/-]/gu, '').replace(/\s+/g, ' ').trim();
+}
+
+function parseMoneyField(value, label, required = false) {
+  const raw = String(value || '').trim();
+  if (!raw) {
+    if (required) throw new Error(`${label} must be a number.`);
+    return '';
+  }
+  if (!/^\d+(\.\d{1,2})?$/.test(raw)) throw new Error(`${label} must be a number only.`);
+  return Number(raw);
+}
+
+function parseWholeNumberField(value, label, fallback = 0) {
+  const raw = String(value || '').trim();
+  if (!raw) return fallback;
+  if (!/^\d+$/.test(raw)) throw new Error(`${label} must be a whole number only.`);
+  return Number(raw);
+}
+
+function cleanLines(value = '') {
+  return String(value || '').split(/\r?\n/).map(cleanPlainText).filter(Boolean);
 }
 
 function orderUploads(order) {
@@ -585,35 +614,47 @@ app.post('/admin/orders/:orderId/status', requireAdmin, (req, res) => {
 app.get('/admin/product', requireAdmin, (req, res) => {
   const p = readDb().product;
   const galleryPreview = (p.galleryPaths || []).filter(Boolean).map(src => `<img src="${esc(src)}" alt="Gallery image">`).join('');
-  res.send(adminPage(req, 'Product', `<h1>Product Settings</h1><form class="panel grid pad" method="post" action="/admin/product" enctype="multipart/form-data">${csrfField(req)}<label>Name<input name="name" value="${esc(p.name)}"></label><label>Short Description<textarea name="shortDescription">${esc(p.shortDescription)}</textarea></label><label>Long Description<textarea name="longDescription">${esc(p.longDescription)}</textarea></label><div class="grid two"><label>Base Price<input name="basePrice" value="${esc(p.basePrice)}"></label><label>Offer Price<input name="offerPrice" value="${esc(p.offerPrice)}"></label></div><section class="admin-image-tools"><div><span class="config-label">Main Image</span>${p.imagePath ? `<img class="admin-image-preview" src="${esc(p.imagePath)}" alt="Current main product image">` : ''}</div><label>Upload New Main Image<input type="file" name="imageUpload" accept="image/jpeg,image/png,image/webp"></label><label>Main Image Path<input name="imagePath" value="${esc(p.imagePath)}"></label></section><section class="admin-image-tools"><div><span class="config-label">Gallery Images</span><div class="admin-gallery-preview">${galleryPreview}</div></div><label>Add Gallery Images<input type="file" name="galleryUploads" accept="image/jpeg,image/png,image/webp" multiple></label><label>Gallery Image Paths, one per line<textarea name="galleryPaths">${esc((p.galleryPaths || []).join('\n'))}</textarea></label></section><label>Delivery Text<input name="deliveryText" value="${esc(p.deliveryText)}"></label><label>Product Details<textarea name="details">${esc(p.details || '')}</textarea></label><label>Ingredients<textarea name="ingredients">${esc(p.ingredients || '')}</textarea></label><label>Care / Storage<textarea name="care">${esc(p.care || '')}</textarea></label><label>FAQs, one per line as Question|Answer<textarea name="faq">${esc(p.faq || '')}</textarea></label><label><input type="checkbox" name="active" value="1" ${p.active ? 'checked' : ''}> Product active</label><label><input type="checkbox" name="codAvailable" value="1" ${p.codAvailable ? 'checked' : ''}> COD available</label><button type="submit" class="btn primary">Save Product</button></form>`));
+  res.send(adminPage(req, 'Product', `<h1>Product Settings</h1><form class="panel grid pad" method="post" action="/admin/product" enctype="multipart/form-data">${csrfField(req)}<label>Name<input name="name" value="${esc(p.name)}" data-clean="name" required></label><label>Short Description<textarea name="shortDescription" data-clean="text">${esc(p.shortDescription)}</textarea></label><label>Long Description<textarea name="longDescription" data-clean="text">${esc(p.longDescription)}</textarea></label><div class="grid two"><label>Base Price<input type="number" name="basePrice" value="${esc(p.basePrice)}" min="0" step="1" inputmode="numeric" required></label><label>Offer Price<input type="number" name="offerPrice" value="${esc(p.offerPrice)}" min="0" step="1" inputmode="numeric"></label></div><section class="admin-image-tools"><div><span class="config-label">Main Image</span>${p.imagePath ? `<img class="admin-image-preview" src="${esc(p.imagePath)}" alt="Current main product image">` : ''}</div><label>Upload New Main Image<input type="file" name="imageUpload" accept="image/jpeg,image/png,image/webp"></label><label>Main Image Path<input name="imagePath" value="${esc(p.imagePath)}"></label></section><section class="admin-image-tools"><div><span class="config-label">Gallery Images</span><div class="admin-gallery-preview">${galleryPreview}</div></div><label>Add Gallery Images<input type="file" name="galleryUploads" accept="image/jpeg,image/png,image/webp" multiple></label><label>Gallery Image Paths, one per line<textarea name="galleryPaths">${esc((p.galleryPaths || []).join('\n'))}</textarea></label></section><label>Delivery Text<input name="deliveryText" value="${esc(p.deliveryText)}" data-clean="text"></label><label>Product Details<textarea name="details" data-clean="text">${esc(p.details || '')}</textarea></label><label>Ingredients<textarea name="ingredients" data-clean="text">${esc(p.ingredients || '')}</textarea></label><label>Care / Storage<textarea name="care" data-clean="text">${esc(p.care || '')}</textarea></label><label>FAQs, one per line as Question|Answer<textarea name="faq">${esc(p.faq || '')}</textarea></label><label><input type="checkbox" name="active" value="1" ${p.active ? 'checked' : ''}> Product active</label><label><input type="checkbox" name="codAvailable" value="1" ${p.codAvailable ? 'checked' : ''}> COD available</label><button type="submit" class="btn primary">Save Product</button></form>`));
 });
 
 app.post('/admin/product', requireAdmin, upload.fields([{ name: 'imageUpload', maxCount: 1 }, { name: 'galleryUploads', maxCount: 12 }]), (req, res) => {
   try { assertCsrf(req); } catch (e) { flash(req, 'error', e.message); return res.redirect('/admin/product'); }
   const db = readDb();
-  const mainUpload = req.files?.imageUpload?.[0];
-  const galleryUploads = req.files?.galleryUploads || [];
-  const typedGallery = String(req.body.galleryPaths || '').split(/\r?\n/).map(normalizePublicPath).filter(Boolean);
-  const uploadedGallery = galleryUploads.map(uploadedPublicPath);
-  Object.assign(db.product, { name: req.body.name, shortDescription: req.body.shortDescription, longDescription: req.body.longDescription, basePrice: Number(req.body.basePrice || 0), offerPrice: req.body.offerPrice, imagePath: uploadedPublicPath(mainUpload) || normalizePublicPath(req.body.imagePath), galleryPaths: [...typedGallery, ...uploadedGallery].filter((value, index, arr) => arr.indexOf(value) === index), active: Boolean(req.body.active), codAvailable: Boolean(req.body.codAvailable), deliveryText: req.body.deliveryText, details: req.body.details, ingredients: req.body.ingredients, care: req.body.care, faq: req.body.faq });
-  writeDb(db);
-  flash(req, 'success', 'Product updated.');
+  try {
+    const mainUpload = req.files?.imageUpload?.[0];
+    const galleryUploads = req.files?.galleryUploads || [];
+    const typedGallery = String(req.body.galleryPaths || '').split(/\r?\n/).map(normalizePublicPath).filter(Boolean);
+    const uploadedGallery = galleryUploads.map(uploadedPublicPath);
+    const name = cleanName(req.body.name);
+    if (!name) throw new Error('Product name is required and cannot use special characters.');
+    Object.assign(db.product, { name, shortDescription: cleanPlainText(req.body.shortDescription), longDescription: cleanPlainText(req.body.longDescription), basePrice: parseMoneyField(req.body.basePrice, 'Base Price', true), offerPrice: parseMoneyField(req.body.offerPrice, 'Offer Price'), imagePath: uploadedPublicPath(mainUpload) || normalizePublicPath(req.body.imagePath), galleryPaths: [...typedGallery, ...uploadedGallery].filter((value, index, arr) => arr.indexOf(value) === index), active: Boolean(req.body.active), codAvailable: Boolean(req.body.codAvailable), deliveryText: cleanPlainText(req.body.deliveryText), details: cleanPlainText(req.body.details), ingredients: cleanPlainText(req.body.ingredients), care: cleanPlainText(req.body.care), faq: req.body.faq });
+    writeDb(db);
+    flash(req, 'success', 'Product updated.');
+  } catch (e) {
+    flash(req, 'error', e.message);
+  }
   res.redirect('/admin/product');
 });
 
 app.get('/admin/customizations', requireAdmin, (req, res) => {
   const db = readDb();
   const typeOptions = value => ['checkbox', 'file', 'text', 'textarea', 'select'].map(type => `<option value="${type}" ${value === type ? 'selected' : ''}>${type}</option>`).join('');
-  const editCards = db.options.sort((a, b) => a.order - b.order).map(o => `<form class="panel grid pad option-admin-card" method="post" action="/admin/customizations/update">${csrfField(req)}<input type="hidden" name="id" value="${o.id}"><div class="admin-card-head"><div><h2>${esc(o.title)}</h2><p class="muted">${esc(o.type)} | ${money(o.price)} | ${o.active ? 'Active' : 'Inactive'}</p></div><button class="btn primary">Save</button></div><div class="grid two"><label>Title<input name="title" value="${esc(o.title)}" required></label><label>Type<select name="type">${typeOptions(o.type)}</select></label></div><label>Description<textarea name="description">${esc(o.description || '')}</textarea></label><div class="grid two"><label>Price<input name="price" value="${esc(o.price)}"></label><label>Display Order<input name="order" value="${esc(o.order)}"></label></div><div class="grid two"><label>Placeholder<input name="placeholder" value="${esc(o.placeholder || '')}"></label><label>Character Limit<input name="maxLength" value="${esc(o.maxLength || '')}" placeholder="Optional"></label></div><label>Dropdown Choices, one per line<textarea name="choices">${esc((o.choices || []).join('\n'))}</textarea></label><div class="admin-checks"><label><input type="checkbox" name="active" value="1" ${o.active ? 'checked' : ''}> Active</label><label><input type="checkbox" name="required" value="1" ${o.required ? 'checked' : ''}> Required</label><label><input type="checkbox" name="uploadRequired" value="1" ${o.uploadRequired ? 'checked' : ''}> Upload required</label></div></form><form method="post" action="/admin/customizations/delete" class="delete-row">${csrfField(req)}<input type="hidden" name="id" value="${o.id}"><button class="btn danger" onclick="return confirm('Delete this customization?')">Delete ${esc(o.title)}</button></form>`).join('');
-  const form = `<form class="panel grid pad" method="post" action="/admin/customizations">${csrfField(req)}<h2>Add Customization</h2><label>Title<input name="title" required></label><label>Description<textarea name="description"></textarea></label><div class="grid two"><label>Type<select name="type">${typeOptions('checkbox')}</select></label><label>Price<input name="price" value="0"></label></div><div class="grid two"><label>Placeholder<input name="placeholder"></label><label>Character Limit<input name="maxLength" placeholder="Optional"></label></div><label>Dropdown Choices, one per line<textarea name="choices"></textarea></label><label>Display Order<input name="order" value="50"></label><div class="admin-checks"><label><input type="checkbox" name="active" value="1" checked> Active</label><label><input type="checkbox" name="required" value="1"> Required</label><label><input type="checkbox" name="uploadRequired" value="1"> Upload required</label></div><button class="btn primary">Create Customization</button></form>`;
+  const editCards = db.options.sort((a, b) => a.order - b.order).map(o => `<form class="panel grid pad option-admin-card" method="post" action="/admin/customizations/update">${csrfField(req)}<input type="hidden" name="id" value="${o.id}"><div class="admin-card-head"><div><h2>${esc(o.title)}</h2><p class="muted">${esc(o.type)} | ${money(o.price)} | ${o.active ? 'Active' : 'Inactive'}</p></div><button class="btn primary">Save</button></div><div class="grid two"><label>Title<input name="title" value="${esc(o.title)}" data-clean="name" required></label><label>Type<select name="type">${typeOptions(o.type)}</select></label></div><label>Description<textarea name="description" data-clean="text">${esc(o.description || '')}</textarea></label><div class="grid two"><label>Price<input type="number" name="price" value="${esc(o.price)}" min="0" step="1" inputmode="numeric"></label><label>Display Order<input type="number" name="order" value="${esc(o.order)}" min="0" step="1" inputmode="numeric"></label></div><div class="grid two"><label>Placeholder<input name="placeholder" value="${esc(o.placeholder || '')}" data-clean="text"></label><label>Character Limit<input type="number" name="maxLength" value="${esc(o.maxLength || '')}" min="0" step="1" inputmode="numeric" placeholder="Optional"></label></div><label>Dropdown Choices, one per line<textarea name="choices" data-clean="text">${esc((o.choices || []).join('\n'))}</textarea></label><div class="admin-checks"><label><input type="checkbox" name="active" value="1" ${o.active ? 'checked' : ''}> Active</label><label><input type="checkbox" name="required" value="1" ${o.required ? 'checked' : ''}> Required</label><label><input type="checkbox" name="uploadRequired" value="1" ${o.uploadRequired ? 'checked' : ''}> Upload required</label></div></form><form method="post" action="/admin/customizations/delete" class="delete-row">${csrfField(req)}<input type="hidden" name="id" value="${o.id}"><button class="btn danger" onclick="return confirm('Delete this customization?')">Delete ${esc(o.title)}</button></form>`).join('');
+  const form = `<form class="panel grid pad" method="post" action="/admin/customizations">${csrfField(req)}<h2>Add Customization</h2><label>Title<input name="title" data-clean="name" required></label><label>Description<textarea name="description" data-clean="text"></textarea></label><div class="grid two"><label>Type<select name="type">${typeOptions('checkbox')}</select></label><label>Price<input type="number" name="price" value="0" min="0" step="1" inputmode="numeric"></label></div><div class="grid two"><label>Placeholder<input name="placeholder" data-clean="text"></label><label>Character Limit<input type="number" name="maxLength" min="0" step="1" inputmode="numeric" placeholder="Optional"></label></div><label>Dropdown Choices, one per line<textarea name="choices" data-clean="text"></textarea></label><label>Display Order<input type="number" name="order" value="50" min="0" step="1" inputmode="numeric"></label><div class="admin-checks"><label><input type="checkbox" name="active" value="1" checked> Active</label><label><input type="checkbox" name="required" value="1"> Required</label><label><input type="checkbox" name="uploadRequired" value="1"> Upload required</label></div><button class="btn primary">Create Customization</button></form>`;
   res.send(adminPage(req, 'Customizations', `<h1>Customizations</h1><p class="lead">Control every field shown in the storefront configurator. Active options appear automatically on the product page in display order.</p><div class="admin-options">${editCards}</div>${form}`));
 });
 
 app.post('/admin/customizations', requireAdmin, (req, res) => {
   const db = readDb();
-  db.options.push({ id: db.nextOptionId++, title: req.body.title, description: req.body.description || '', type: req.body.type, choices: String(req.body.choices || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean), price: Number(req.body.price || 0), required: Boolean(req.body.required), active: Boolean(req.body.active), uploadRequired: Boolean(req.body.uploadRequired), order: Number(req.body.order || 50), maxLength: Number(req.body.maxLength || 0) || '', placeholder: req.body.placeholder || '' });
-  writeDb(db);
-  flash(req, 'success', 'Customization saved.');
+  try {
+    const title = cleanName(req.body.title);
+    if (!title) throw new Error('Customization title is required and cannot use special characters.');
+    db.options.push({ id: db.nextOptionId++, title, description: cleanPlainText(req.body.description), type: req.body.type, choices: cleanLines(req.body.choices), price: parseMoneyField(req.body.price, 'Price') || 0, required: Boolean(req.body.required), active: Boolean(req.body.active), uploadRequired: Boolean(req.body.uploadRequired), order: parseWholeNumberField(req.body.order, 'Display Order', 50), maxLength: parseWholeNumberField(req.body.maxLength, 'Character Limit', 0) || '', placeholder: cleanPlainText(req.body.placeholder) });
+    writeDb(db);
+    flash(req, 'success', 'Customization saved.');
+  } catch (e) {
+    flash(req, 'error', e.message);
+  }
   res.redirect('/admin/customizations');
 });
 
@@ -621,21 +662,27 @@ app.post('/admin/customizations/update', requireAdmin, (req, res) => {
   const db = readDb();
   const option = db.options.find(o => String(o.id) === String(req.body.id));
   if (option) {
-    Object.assign(option, {
-      title: req.body.title,
-      description: req.body.description || '',
-      type: req.body.type,
-      choices: String(req.body.choices || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean),
-      price: Number(req.body.price || 0),
-      required: Boolean(req.body.required),
-      active: Boolean(req.body.active),
-      uploadRequired: Boolean(req.body.uploadRequired),
-      order: Number(req.body.order || 50),
-      maxLength: Number(req.body.maxLength || 0) || '',
-      placeholder: req.body.placeholder || ''
-    });
-    writeDb(db);
-    flash(req, 'success', 'Customization updated.');
+    try {
+      const title = cleanName(req.body.title);
+      if (!title) throw new Error('Customization title is required and cannot use special characters.');
+      Object.assign(option, {
+        title,
+        description: cleanPlainText(req.body.description),
+        type: req.body.type,
+        choices: cleanLines(req.body.choices),
+        price: parseMoneyField(req.body.price, 'Price') || 0,
+        required: Boolean(req.body.required),
+        active: Boolean(req.body.active),
+        uploadRequired: Boolean(req.body.uploadRequired),
+        order: parseWholeNumberField(req.body.order, 'Display Order', 50),
+        maxLength: parseWholeNumberField(req.body.maxLength, 'Character Limit', 0) || '',
+        placeholder: cleanPlainText(req.body.placeholder)
+      });
+      writeDb(db);
+      flash(req, 'success', 'Customization updated.');
+    } catch (e) {
+      flash(req, 'error', e.message);
+    }
   }
   res.redirect('/admin/customizations');
 });
@@ -650,14 +697,20 @@ app.post('/admin/customizations/delete', requireAdmin, (req, res) => {
 
 app.get('/admin/settings', requireAdmin, (req, res) => {
   const s = readDb().settings;
-  res.send(adminPage(req, 'Settings', `<h1>Store Settings</h1><form class="panel grid pad" method="post" action="/admin/settings">${csrfField(req)}<label>Store Name<input name="storeName" value="${esc(s.storeName)}"></label><label>Logo Path<input name="logoPath" value="${esc(s.logoPath)}"></label><div class="grid two"><label>Contact Phone<input name="contactPhone" value="${esc(s.contactPhone)}"></label><label>WhatsApp<input name="whatsappNumber" value="${esc(s.whatsappNumber)}"></label></div><label>Support Email<input name="supportEmail" value="${esc(s.supportEmail)}"></label><label>Store Address<textarea name="storeAddress">${esc(s.storeAddress)}</textarea></label><div class="grid two"><label>Shipping Fee<input name="shippingFee" value="${esc(s.shippingFee)}"></label><label>Free Shipping Minimum<input name="freeShippingMinimum" value="${esc(s.freeShippingMinimum)}"></label></div><label><input type="checkbox" name="freeShippingEnabled" value="1" ${s.freeShippingEnabled ? 'checked' : ''}> Enable free shipping threshold</label><label><input type="checkbox" name="codEnabled" value="1" ${s.codEnabled ? 'checked' : ''}> COD enabled</label><label>Delivery Text<input name="deliveryText" value="${esc(s.deliveryText)}"></label><button class="btn primary">Save Settings</button></form>`));
+  res.send(adminPage(req, 'Settings', `<h1>Store Settings</h1><form class="panel grid pad" method="post" action="/admin/settings">${csrfField(req)}<label>Store Name<input name="storeName" value="${esc(s.storeName)}" data-clean="name" required></label><label>Logo Path<input name="logoPath" value="${esc(s.logoPath)}"></label><div class="grid two"><label>Contact Phone<input name="contactPhone" value="${esc(s.contactPhone)}" data-clean="phone" inputmode="tel"></label><label>WhatsApp<input name="whatsappNumber" value="${esc(s.whatsappNumber)}" data-clean="phone" inputmode="tel"></label></div><label>Support Email<input type="email" name="supportEmail" value="${esc(s.supportEmail)}"></label><label>Store Address<textarea name="storeAddress" data-clean="text">${esc(s.storeAddress)}</textarea></label><div class="grid two"><label>Shipping Fee<input type="number" name="shippingFee" value="${esc(s.shippingFee)}" min="0" step="1" inputmode="numeric"></label><label>Free Shipping Minimum<input type="number" name="freeShippingMinimum" value="${esc(s.freeShippingMinimum)}" min="0" step="1" inputmode="numeric"></label></div><label><input type="checkbox" name="freeShippingEnabled" value="1" ${s.freeShippingEnabled ? 'checked' : ''}> Enable free shipping threshold</label><label><input type="checkbox" name="codEnabled" value="1" ${s.codEnabled ? 'checked' : ''}> COD enabled</label><label>Delivery Text<input name="deliveryText" value="${esc(s.deliveryText)}" data-clean="text"></label><button class="btn primary">Save Settings</button></form>`));
 });
 
 app.post('/admin/settings', requireAdmin, (req, res) => {
   const db = readDb();
-  Object.assign(db.settings, { storeName: req.body.storeName, logoPath: req.body.logoPath, contactPhone: req.body.contactPhone, whatsappNumber: req.body.whatsappNumber, supportEmail: req.body.supportEmail, storeAddress: req.body.storeAddress, shippingFee: Number(req.body.shippingFee || 0), freeShippingEnabled: Boolean(req.body.freeShippingEnabled), freeShippingMinimum: Number(req.body.freeShippingMinimum || 0), codEnabled: Boolean(req.body.codEnabled), deliveryText: req.body.deliveryText });
-  writeDb(db);
-  flash(req, 'success', 'Settings updated.');
+  try {
+    const storeName = cleanName(req.body.storeName);
+    if (!storeName) throw new Error('Store name is required and cannot use special characters.');
+    Object.assign(db.settings, { storeName, logoPath: normalizePublicPath(req.body.logoPath), contactPhone: String(req.body.contactPhone || '').replace(/[^\d+\s()-]/g, '').trim(), whatsappNumber: String(req.body.whatsappNumber || '').replace(/[^\d+\s()-]/g, '').trim(), supportEmail: String(req.body.supportEmail || '').trim(), storeAddress: cleanPlainText(req.body.storeAddress), shippingFee: parseMoneyField(req.body.shippingFee, 'Shipping Fee') || 0, freeShippingEnabled: Boolean(req.body.freeShippingEnabled), freeShippingMinimum: parseMoneyField(req.body.freeShippingMinimum, 'Free Shipping Minimum') || 0, codEnabled: Boolean(req.body.codEnabled), deliveryText: cleanPlainText(req.body.deliveryText) });
+    writeDb(db);
+    flash(req, 'success', 'Settings updated.');
+  } catch (e) {
+    flash(req, 'error', e.message);
+  }
   res.redirect('/admin/settings');
 });
 

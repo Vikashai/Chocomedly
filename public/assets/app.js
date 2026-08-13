@@ -86,7 +86,24 @@ function initCheckout() {
   }));
 }
 
+function initAdminValidation() {
+  const cleaners = {
+    name: value => value.replace(/[^\p{L}\p{N}\s&()/-]/gu, '').replace(/\s{2,}/g, ' '),
+    text: value => value.replace(/[^\p{L}\p{N}\s.,'&()/-]/gu, '').replace(/\s{2,}/g, ' '),
+    phone: value => value.replace(/[^\d+\s()-]/g, '')
+  };
+  document.querySelectorAll('[data-clean]').forEach(input => {
+    const clean = cleaners[input.dataset.clean];
+    if (!clean) return;
+    input.addEventListener('input', () => {
+      const next = clean(input.value);
+      if (input.value !== next) input.value = next;
+    });
+  });
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   initProduct();
   initCheckout();
+  initAdminValidation();
 });
