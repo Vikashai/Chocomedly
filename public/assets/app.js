@@ -91,7 +91,7 @@ function initProduct() {
         event.target.files = transfer.files;
       }
       const count = event.target.files.length;
-      const name = count ? `${count} image${count === 1 ? '' : 's'} selected` : 'No files selected';
+      const name = count ? `${count} photo${count === 1 ? '' : 's'} selected` : 'No photos selected';
       event.target.closest('.upload-box')?.querySelector('[data-file-name]')?.replaceChildren(document.createTextNode(name));
     }
     recalc();
@@ -232,6 +232,27 @@ function initAdminValidation() {
   });
 }
 
+function initStoreActivity() {
+  const activity = document.querySelector('[data-store-activity]');
+  if (!activity) return;
+  const refresh = async () => {
+    try {
+      const response = await fetch('/store-activity', { cache: 'no-store', headers: { Accept: 'application/json' } });
+      if (!response.ok) return;
+      const data = await response.json();
+      const orders = activity.querySelector('[data-recent-orders]');
+      const orderLabel = activity.querySelector('[data-order-label]');
+      const visitors = activity.querySelector('[data-active-visitors]');
+      if (orders) orders.textContent = String(data.recentOrders);
+      if (orderLabel) orderLabel.textContent = data.recentOrders === 1 ? 'order' : 'orders';
+      if (visitors) visitors.textContent = String(data.activeVisitors);
+    } catch (_) {
+      // Keep the server-rendered figures when the activity refresh is unavailable.
+    }
+  };
+  window.setInterval(refresh, 20000);
+}
+
 const adminRules = {
   name: input => /^[\p{L}][\p{L}\s]{1,79}$/u.test(input.value.trim()) ? '' : 'Use letters only.',
   text: input => !input.value.trim() || input.value.trim().length >= 4 ? '' : 'Enter at least 4 characters.',
@@ -273,4 +294,5 @@ document.addEventListener('DOMContentLoaded', () => {
   initProduct();
   initCheckout();
   initAdminValidation();
+  initStoreActivity();
 });
