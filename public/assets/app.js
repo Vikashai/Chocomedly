@@ -79,6 +79,11 @@ function initProduct() {
 function initCheckout() {
   const checkoutForm = document.querySelector('[data-checkout-form]');
   if (checkoutForm) {
+    checkoutForm.querySelectorAll('[data-rule]').forEach(input => {
+      input.addEventListener('input', () => refreshCheckoutField(input));
+      input.addEventListener('change', () => refreshCheckoutField(input));
+      input.addEventListener('blur', () => validateCheckoutField(input));
+    });
     checkoutForm.addEventListener('submit', event => {
       if (!validateCheckout(checkoutForm)) {
         event.preventDefault();
@@ -108,21 +113,33 @@ function setFieldError(input, message = '') {
   if (error) error.textContent = message;
 }
 
+const checkoutRules = {
+  person: input => /^[A-Za-z][A-Za-z ]{1,59}$/.test(input.value.trim()) ? '' : 'Use letters only.',
+  mobile: input => /^[6-9]\d{9}$/.test(input.value.trim()) ? '' : 'Enter a valid 10-digit mobile number.',
+  optionalMobile: input => !input.value.trim() || /^[6-9]\d{9}$/.test(input.value.trim()) ? '' : 'Enter a valid 10-digit mobile number.',
+  optionalEmail: input => !input.value.trim() || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input.value.trim()) ? '' : 'Enter a valid email address.',
+  requiredText: input => input.value.trim().length >= 4 ? '' : 'This field is required.',
+  pin: input => /^\d{6}$/.test(input.value.trim()) ? '' : 'Enter a 6-digit PIN code.',
+  requiredSelect: input => input.value ? '' : 'Select an option.'
+};
+
+function validateCheckoutField(input) {
+  const message = checkoutRules[input.dataset.rule]?.(input) || '';
+  setFieldError(input, message);
+  return !message;
+}
+
+function refreshCheckoutField(input) {
+  const message = checkoutRules[input.dataset.rule]?.(input) || '';
+  if (input.classList.contains('is-invalid') || !message) {
+    setFieldError(input, message);
+  }
+}
+
 function validateCheckout(form) {
-  const rules = {
-    person: input => /^[A-Za-z][A-Za-z ]{1,59}$/.test(input.value.trim()) ? '' : 'Use letters only.',
-    mobile: input => /^[6-9]\d{9}$/.test(input.value.trim()) ? '' : 'Enter a valid 10-digit mobile number.',
-    optionalMobile: input => !input.value.trim() || /^[6-9]\d{9}$/.test(input.value.trim()) ? '' : 'Enter a valid 10-digit mobile number.',
-    optionalEmail: input => !input.value.trim() || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input.value.trim()) ? '' : 'Enter a valid email address.',
-    requiredText: input => input.value.trim().length >= 4 ? '' : 'This field is required.',
-    pin: input => /^\d{6}$/.test(input.value.trim()) ? '' : 'Enter a 6-digit PIN code.',
-    requiredSelect: input => input.value ? '' : 'Select an option.'
-  };
   let firstInvalid = null;
   form.querySelectorAll('[data-rule]').forEach(input => {
-    const message = rules[input.dataset.rule]?.(input) || '';
-    setFieldError(input, message);
-    if (message && !firstInvalid) firstInvalid = input;
+    if (!validateCheckoutField(input) && !firstInvalid) firstInvalid = input;
   });
   if (firstInvalid) firstInvalid.focus();
   return !firstInvalid;
@@ -143,7 +160,7 @@ function initAdminValidation() {
     input.addEventListener('input', () => {
       const next = clean(input.value);
       if (input.value !== next) input.value = next;
-      if (input.dataset.rule) setFieldError(input);
+      if (input.dataset.rule) refreshCheckoutField(input);
     });
   });
 }

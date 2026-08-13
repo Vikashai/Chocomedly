@@ -20,11 +20,12 @@ const PRODUCT_IMAGES = [
   '/img/WhatsApp Image 2026-08-11 at 7.49.51 PM.jpeg',
   '/img/WhatsApp Image 2026-08-11 at 7.56.50 PM.jpeg'
 ];
-const ASSET_VERSION = 'premium-20260813-9';
+const ASSET_VERSION = 'premium-20260813-12';
 const LOG_DIR = path.join(ROOT, 'storage', 'logs');
 const DEMO_ADMIN_EMAIL = process.env.DEMO_ADMIN_EMAIL || 'admin@chocomedley.in';
+const IS_RENDER = Boolean(process.env.RENDER || process.env.RENDER_EXTERNAL_URL || process.env.RENDER_SERVICE_ID);
+const DEMO_ADMIN_ENABLED = process.env.DEMO_ADMIN_ENABLED === 'true' || IS_RENDER || process.env.NODE_ENV !== 'production';
 const DEMO_ADMIN_PASSWORD = process.env.DEMO_ADMIN_PASSWORD || '';
-const DEMO_ADMIN_ENABLED = Boolean(DEMO_ADMIN_PASSWORD) && (process.env.DEMO_ADMIN_ENABLED === 'true' || Boolean(process.env.RENDER || process.env.RENDER_EXTERNAL_URL || process.env.RENDER_SERVICE_ID));
 const INDIA_STATES = [
   'Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh', 'Goa', 'Gujarat', 'Haryana',
   'Himachal Pradesh', 'Jharkhand', 'Karnataka', 'Kerala', 'Madhya Pradesh', 'Maharashtra', 'Manipur',
@@ -49,6 +50,9 @@ app.use((_, res, next) => {
   next();
 });
 app.use(express.static(path.join(ROOT, 'public'), {
+  maxAge: process.env.NODE_ENV === 'production' ? '7d' : 0
+}));
+app.use('/uploads', express.static(UPLOAD_DIR, {
   maxAge: process.env.NODE_ENV === 'production' ? '7d' : 0
 }));
 if (process.env.NODE_ENV === 'production' && !process.env.SESSION_SECRET) {
@@ -124,13 +128,45 @@ function seed() {
 
 function demoAdmins() {
   if (!DEMO_ADMIN_ENABLED || DEMO_ADMIN_PASSWORD.length < 10) return [];
-  return [{
-    id: 'render-demo-admin',
-    name: 'Admin',
+  return [demoAdminRecord()];
+}
+
+function demoAdminRecord(existing = {}) {
+  return {
+    ...existing,
+    id: existing.id || 'render-demo-admin',
+    name: existing.name || 'Admin',
     email: DEMO_ADMIN_EMAIL.trim().toLowerCase(),
     passwordHash: bcrypt.hashSync(DEMO_ADMIN_PASSWORD, 12),
-    createdAt: new Date().toISOString()
-  }];
+    createdAt: existing.createdAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+}
+
+function ensureDemoAdmin(data) {
+  if (!DEMO_ADMIN_ENABLED || DEMO_ADMIN_PASSWORD.length < 10) return false;
+  if (!Array.isArray(data.admins)) data.admins = [];
+  const email = DEMO_ADMIN_EMAIL.trim().toLowerCase();
+  const existing = data.admins.find(admin => admin.id === 'render-demo-admin' || admin.email === email);
+  if (!existing) {
+    data.admins.push(demoAdminRecord());
+    return true;
+  }
+  let changed = false;
+  if (existing.email !== email) {
+    existing.email = email;
+    changed = true;
+  }
+  if (!existing.name) {
+    existing.name = 'Admin';
+    changed = true;
+  }
+  if (!existing.passwordHash || !bcrypt.compareSync(DEMO_ADMIN_PASSWORD, existing.passwordHash)) {
+    existing.passwordHash = bcrypt.hashSync(DEMO_ADMIN_PASSWORD, 12);
+    changed = true;
+  }
+  if (changed) existing.updatedAt = new Date().toISOString();
+  return changed;
 }
 
 function readDb() {
@@ -155,10 +191,7 @@ function readDb() {
     data.product.galleryPaths = PRODUCT_IMAGES;
     changed = true;
   }
-  if ((!Array.isArray(data.admins) || !data.admins.length) && DEMO_ADMIN_ENABLED) {
-    data.admins = demoAdmins();
-    changed = true;
-  }
+  if (ensureDemoAdmin(data)) changed = true;
   if (!data.product.imagePath || data.product.imagePath.includes('2026-08-12')) {
     data.product.imagePath = PRODUCT_IMAGES[0];
     changed = true;
@@ -180,6 +213,18 @@ function readDb() {
       changed = true;
     }
   });
+  const nextOrderFromExisting = Math.max(
+    10001,
+    ...(data.orders || []).map(order => {
+      const suffix = String(order.orderId || '').match(/(\d+)$/);
+      return suffix ? Number(suffix[1]) + 1 : 10001;
+    })
+  );
+  const normalizedNextOrderNumber = Math.max(Number(data.nextOrderNumber || 10001), nextOrderFromExisting);
+  if (data.nextOrderNumber !== normalizedNextOrderNumber) {
+    data.nextOrderNumber = normalizedNextOrderNumber;
+    changed = true;
+  }
   data.nextOptionId = Math.max(Number(data.nextOptionId || 1), ...data.options.map(o => Number(o.id || 0) + 1), 5);
   if (changed) writeDb(data);
   return data;
@@ -388,7 +433,7 @@ app.get('/', (req, res) => {
 
 function cartDrawer(req, open = false) {
   const totals = cartTotals(req);
-  const lines = cart(req).map(item => `<div class="drawer-line"><img src="${esc(item.productImage)}" alt="${esc(item.productName)}"><div><strong>${esc(item.productName)}</strong><small>Qty ${item.quantity}</small>${item.customizations.map(c => `<small>${esc(c.title)}: ${esc(c.value)}</small>`).join('')}</div><b>${money(item.lineTotal)}</b></div>`).join('');
+  const lines = cart(req).map(item => `<div class="drawer-line"><img src="${esc(item.productImage)}" alt="${esc(item.productName)}"><div><strong>${esc(item.productName)}</strong><small><span class="info-label">Qty:</span> ${item.quantity}</small>${item.customizations.map(c => `<small><span class="info-label">${esc(c.title)}:</span> ${esc(c.value)}</small>`).join('')}</div><b>${money(item.lineTotal)}</b></div>`).join('');
   const empty = !cart(req).length ? '<p class="muted">Your cart is empty.</p>' : lines;
   return `<aside class="cart-drawer ${open ? 'is-open' : ''}" aria-label="Cart"><a class="drawer-scrim" href="/"></a><div class="drawer-panel"><div class="drawer-head"><h2>Your Cart</h2><a href="/" aria-label="Close cart">×</a></div>${empty}<div class="drawer-total"><span>Total</span><strong>${money(totals.total)}</strong></div><a class="btn primary" href="/checkout">Checkout</a><a class="btn ghost" href="/">Continue Shopping</a></div></aside>`;
 }
@@ -440,19 +485,28 @@ app.post('/buy-now', upload.any(), (req, res) => {
 
 app.get('/cart', (req, res) => {
   const totals = cartTotals(req);
-  const lines = cart(req).map(item => `<form class="cart-line" method="post" action="/cart/update">${csrfField(req)}<input type="hidden" name="key" value="${esc(item.key)}"><img src="${esc(item.productImage)}" alt="${esc(item.productName)}"><div><h3>${esc(item.productName)}</h3>${item.customizations.map(c => `<p class="muted">${esc(c.title)}: ${esc(c.value)} (+${money(c.price)})</p>`).join('')}<label>Quantity<input name="quantity" value="${item.quantity}" inputmode="numeric"></label><button type="submit" class="btn">Update</button> <button type="submit" class="btn danger" name="remove" value="1">Remove</button></div><strong>${money(item.lineTotal)}</strong></form>`).join('');
+  const lines = cart(req).map(item => `<form class="cart-line" method="post" action="/cart/update">${csrfField(req)}<input type="hidden" name="key" value="${esc(item.key)}"><img src="${esc(item.productImage)}" alt="${esc(item.productName)}"><div class="cart-line-body"><h3>${esc(item.productName)}</h3>${item.customizations.map(c => `<p class="muted"><span class="info-label">${esc(c.title)}:</span> ${esc(c.value)} (+${money(c.price)})</p>`).join('')}<span class="cart-qty-label">Quantity</span><div class="cart-qty-control" aria-label="Quantity controls"><button type="submit" name="qtyDelta" value="-1" aria-label="Decrease quantity">-</button><input name="quantity" value="${item.quantity}" readonly aria-label="Quantity"><button type="submit" name="qtyDelta" value="1" aria-label="Increase quantity">+</button></div><div class="cart-actions"><button type="submit" class="btn danger" name="remove" value="1">Remove</button></div></div><strong class="cart-line-price">${money(item.lineTotal)}</strong></form>`).join('');
   const empty = !cart(req).length ? `<p class="lead">Your cart is empty.</p><a class="btn primary" href="/">Order Rakhi Hamper</a>` : '';
   res.send(page(req, 'Cart', `<main class="container page-grid"><section class="panel pad"><h1>Your Cart</h1>${flashHtml(req)}${empty}${lines}</section><aside class="panel pad"><h2>Order Summary</h2>${summary(totals)}${cart(req).length ? '<a class="btn primary" href="/checkout">Checkout</a>' : ''}</aside></main>`));
 });
 
 app.post('/cart/update', (req, res) => {
-  req.session.cart = cart(req).filter(item => item.key !== req.body.key || !req.body.remove).map(item => {
+  try { assertCsrf(req); } catch (e) { flash(req, 'error', e.message); return res.redirect('/cart'); }
+  const removed = Boolean(req.body.remove);
+  let updated = false;
+  req.session.cart = cart(req).filter(item => item.key !== req.body.key || !removed).map(item => {
     if (item.key === req.body.key) {
-      item.quantity = Math.max(1, Number(req.body.quantity || 1));
+      const delta = Number(req.body.qtyDelta || 0);
+      const currentQuantity = Math.max(1, Number(item.quantity || 1));
+      const requestedQuantity = delta ? currentQuantity + delta : Number(String(req.body.quantity || currentQuantity).replace(/\D/g, '') || currentQuantity);
+      const nextQuantity = Math.max(1, Math.min(99, requestedQuantity));
+      updated = item.quantity !== nextQuantity;
+      item.quantity = nextQuantity;
       item.lineTotal = (Number(item.basePrice) + Number(item.customizationTotal)) * item.quantity;
     }
     return item;
   });
+  flash(req, 'success', removed ? 'Item removed from cart.' : updated ? 'Cart quantity updated.' : 'Cart is already up to date.');
   res.redirect('/cart');
 });
 
@@ -465,7 +519,7 @@ app.get('/checkout', (req, res) => {
   const db = readDb();
   const totals = cartTotals(req);
   const stateOptions = INDIA_STATES.map(state => `<option value="${esc(state)}">${esc(state)}</option>`).join('');
-  const form = `<form class="panel grid pad" method="post" action="/checkout" data-once data-checkout-form novalidate>${csrfField(req)}<h1>Checkout</h1>${flashHtml(req)}<div class="grid two"><label>Full Name<input name="customerName" autocomplete="name" data-clean="person" data-rule="person" required><small class="field-error" data-error-for="customerName"></small></label><label>Mobile Number<input name="mobile" inputmode="numeric" autocomplete="tel" maxlength="10" data-clean="digits" data-rule="mobile" required><small class="field-error" data-error-for="mobile"></small></label></div><div class="grid two"><label>Alternate Mobile<input name="alternateMobile" inputmode="numeric" autocomplete="tel" maxlength="10" data-clean="digits" data-rule="optionalMobile"><small class="field-error" data-error-for="alternateMobile"></small></label><label>Email<input type="email" name="email" autocomplete="email" data-rule="optionalEmail"><small class="field-error" data-error-for="email"></small></label></div><label>Address Line 1<input name="addressLine1" autocomplete="address-line1" data-clean="address" data-rule="requiredText" required><small class="field-error" data-error-for="addressLine1"></small></label><label>Address Line 2<input name="addressLine2" autocomplete="address-line2" data-clean="address"></label><div class="grid two"><label>Landmark<input name="landmark" data-clean="address"></label><label>PIN Code<input name="pinCode" inputmode="numeric" autocomplete="postal-code" maxlength="6" data-clean="digits" data-rule="pin" required><small class="field-error" data-error-for="pinCode"></small></label></div><div class="grid two"><label>City<input name="city" autocomplete="address-level2" data-clean="person" data-rule="person" required><small class="field-error" data-error-for="city"></small></label><label>State<select name="state" required data-rule="requiredSelect"><option value="">Select state or union territory</option>${stateOptions}</select><small class="field-error" data-error-for="state"></small></label></div><label>Order Notes<textarea name="customerNotes" data-clean="address"></textarea></label><div class="notice"><strong>Payment:</strong> Cash on Delivery. Payment status remains Pending until collected.</div><button type="submit" class="btn primary" data-loading="Placing order...">Place COD Order</button></form>`;
+  const form = `<form class="panel grid pad" method="post" action="/checkout" data-once data-checkout-form novalidate>${csrfField(req)}<h1>Checkout</h1>${flashHtml(req)}<div class="grid two"><label>Full Name<input name="customerName" autocomplete="name" data-clean="person" data-rule="person" required><small class="field-error" data-error-for="customerName"></small></label><label>Mobile Number<input name="mobile" inputmode="numeric" autocomplete="tel" maxlength="10" data-clean="digits" data-rule="mobile" required><small class="field-error" data-error-for="mobile"></small></label></div><div class="grid two"><label>Alternate Mobile<input name="alternateMobile" inputmode="numeric" autocomplete="tel" maxlength="10" data-clean="digits" data-rule="optionalMobile"><small class="field-error" data-error-for="alternateMobile"></small></label><label>Email<input type="email" name="email" autocomplete="email" data-rule="optionalEmail"><small class="field-error" data-error-for="email"></small></label></div><label>Address Line 1<input name="addressLine1" autocomplete="address-line1" data-clean="address" data-rule="requiredText" required><small class="field-error" data-error-for="addressLine1"></small></label><label>Address Line 2<input name="addressLine2" autocomplete="address-line2" data-clean="address"></label><div class="grid two"><label>Landmark<input name="landmark" data-clean="address"><small class="field-error" data-error-for="landmark"></small></label><label>PIN Code<input name="pinCode" inputmode="numeric" autocomplete="postal-code" maxlength="6" data-clean="digits" data-rule="pin" required><small class="field-error" data-error-for="pinCode"></small></label></div><div class="grid two"><label>City<input name="city" autocomplete="address-level2" data-clean="person" data-rule="person" required><small class="field-error" data-error-for="city"></small></label><label>State<select name="state" required data-rule="requiredSelect"><option value="">Select state or union territory</option>${stateOptions}</select><small class="field-error" data-error-for="state"></small></label></div><label>Order Notes<textarea name="customerNotes" data-clean="address"></textarea></label><div class="notice"><strong>Payment:</strong> Cash on Delivery. Payment status remains Pending until collected.</div><button type="submit" class="btn primary" data-loading="Placing order...">Place COD Order</button></form>`;
   res.send(page(req, 'Checkout', `<main class="container page-grid">${form}<aside class="panel pad checkout-side"><h2>Total</h2>${summary(totals)}</aside></main>`));
 });
 
@@ -513,14 +567,19 @@ app.get('/success', (req, res) => {
 app.get('/track', (req, res) => {
   const db = readDb();
   const lookup = req.session.trackLookup;
+  delete req.session.trackLookup;
   const matches = lookup ? db.orders.filter(o => o.mobile === lookup.mobile && (!lookup.orderId || o.orderId.toLowerCase() === lookup.orderId.toLowerCase())) : [];
   const cards = matches.map(order => `<article class="track-card"><div><p class="eyebrow">${esc(order.orderId)}</p><h2>${esc(order.orderStatus)}</h2><p><span class="info-label">Customer:</span> ${esc(order.customerName)}</p><p><span class="info-label">Order total:</span> ${money(order.total)}</p></div><div class="track-meta"><p><span class="info-label">Courier:</span> <strong>${esc(order.courier || 'Not assigned yet')}</strong></p><p><span class="info-label">Tracking:</span> <strong>${esc(order.trackingNumber || 'Pending')}</strong></p><p><span class="info-label">Estimated delivery:</span> <strong>${esc(order.estimatedDeliveryDate || 'To be updated')}</strong></p></div><div class="actions">${order.trackingUrl ? `<a class="btn primary" href="${esc(order.trackingUrl)}" target="_blank" rel="noopener">Open Courier Tracking</a>` : ''}${whatsappCta(db.settings, 'Ask on WhatsApp', `Hi Chocomedley, I want an update for order ${order.orderId}.`)}</div></article>`).join('');
-  const result = lookup && !matches.length ? `<p class="notice error">No matching order found for that mobile number${lookup.orderId ? ' and order ID' : ''}.</p>${whatsappCta(db.settings, 'Get Help on WhatsApp', 'Hi Chocomedley, I cannot find my order tracking details. Please help.')}` : matches.length ? cards : `<p class="lead">Enter your mobile number to see live order status. Add Order ID if you want to narrow the result.</p>${whatsappCta(db.settings, 'Chat With Support', 'Hi Chocomedley, I need help tracking my order.')}`;
-  res.send(page(req, 'Track Order', `<main class="container page-grid"><form class="panel grid pad" method="post" action="/track">${csrfField(req)}<h1>Track Order</h1><label>Mobile Number<input name="mobile" pattern="[6-9][0-9]{9}" value="${esc(lookup?.mobile || '')}" required></label><label>Order ID <span class="muted">optional</span><input name="orderId" placeholder="RAKHI-10001" value="${esc(lookup?.orderId || '')}"></label><button type="submit" class="btn primary">Check Live Status</button></form><aside class="panel pad track-results">${result}</aside></main>`));
+  const result = lookup && !matches.length ? `<p class="notice error">No matching order found for that Mobile Number${lookup.orderId ? ' and Order ID' : ''}.</p>${whatsappCta(db.settings, 'Get Help on WhatsApp', 'Hi Chocomedley, I cannot find my order tracking details. Please help.')}` : matches.length ? cards : `<p class="lead">Enter your Mobile Number to see live order status. Add Order ID if you want to narrow the result.</p>${whatsappCta(db.settings, 'Chat With Support', 'Hi Chocomedley, I need help tracking my order.')}`;
+  res.send(page(req, 'Track Order', `<main class="container page-grid"><form class="panel grid pad" method="post" action="/track" autocomplete="off">${csrfField(req)}<h1>Track Order</h1>${flashHtml(req)}<label>Mobile Number<input name="mobile" pattern="[6-9][0-9]{9}" value="" autocomplete="off" required></label><label>Order ID <span class="muted">Optional</span><input name="orderId" placeholder="RAKHI-10001" value="" autocomplete="off"></label><button type="submit" class="btn primary">Check Live Status</button></form><aside class="panel pad track-results">${result}</aside></main>`));
 });
 
 app.post('/track', (req, res) => {
-  req.session.trackLookup = { orderId: String(req.body.orderId || '').trim(), mobile: String(req.body.mobile || '').trim() };
+  try { assertCsrf(req); } catch (e) { flash(req, 'error', e.message); return res.redirect('/track'); }
+  const mobile = String(req.body.mobile || '').replace(/\D/g, '');
+  const orderId = String(req.body.orderId || '').trim().toUpperCase();
+  req.session.trackLookup = { orderId, mobile };
+  flash(req, 'success', 'Tracking checked. Latest result is shown on the right.');
   res.redirect('/track');
 });
 
@@ -591,7 +650,7 @@ app.get('/admin/orders', requireAdmin, (req, res) => {
 app.get('/admin/orders/:orderId', requireAdmin, (req, res) => {
   const order = readDb().orders.find(o => o.orderId === req.params.orderId);
   if (!order) return res.send(adminPage(req, 'Order Not Found', '<p class="notice error">Order not found.</p>'));
-  const items = order.items.map(item => `<h3>${esc(item.productName)} x ${item.quantity}</h3><p>Base ${money(item.basePrice)} | Line ${money(item.lineTotal)}</p>${item.customizations.map(c => `<div class="order-customization"><p>${esc(c.title)}: ${esc(c.value)} (+${money(c.price)})</p>${c.uploadedPath ? orderUploadPreview({ items: [{ customizations: [c] }] }, false) : ''}</div>`).join('')}`).join('');
+  const items = order.items.map(item => `<h3>${esc(item.productName)} x ${item.quantity}</h3><p><span class="info-label">Base:</span> ${money(item.basePrice)} | <span class="info-label">Line:</span> ${money(item.lineTotal)}</p>${item.customizations.map(c => `<div class="order-customization"><p><span class="info-label">${esc(c.title)}:</span> ${esc(c.value)} (+${money(c.price)})</p>${c.uploadedPath ? orderUploadPreview({ items: [{ customizations: [c] }] }, false) : ''}</div>`).join('')}`).join('');
   const notifications = (order.emailNotifications || []).slice(0, 4).map(n => `<li><strong>${esc(n.status)}</strong> ${esc(n.result)} ${n.to ? `to ${esc(n.to)}` : ''}<small>${esc(n.at)}</small></li>`).join('') || '<li class="muted">No status emails triggered yet.</li>';
   const form = `<form class="panel grid pad" method="post" action="/admin/orders/${esc(order.orderId)}">${csrfField(req)}<h2>Fulfilment</h2><label>Order Status<select name="orderStatus">${statusOptions(order.orderStatus)}</select></label><label class="inline-check"><input type="checkbox" name="notifyEmail" value="1" checked> Trigger customer email when status changes</label><label>Payment Status<select name="paymentStatus">${['Pending', 'Collected', 'Failed', 'Refunded'].map(s => `<option ${order.paymentStatus === s ? 'selected' : ''}>${s}</option>`).join('')}</select></label><label>Courier<input name="courier" value="${esc(order.courier)}"></label><label>Tracking Number<input name="trackingNumber" value="${esc(order.trackingNumber)}"></label><label>Tracking URL<input name="trackingUrl" value="${esc(order.trackingUrl)}"></label><div class="grid two"><label>Shipping Date<input type="date" name="shippingDate" value="${esc(order.shippingDate)}"></label><label>Estimated Delivery<input type="date" name="estimatedDeliveryDate" value="${esc(order.estimatedDeliveryDate)}"></label></div><label>Admin Notes<textarea name="adminNotes">${esc(order.adminNotes)}</textarea></label><button type="submit" class="btn primary">Save Order</button></form>`;
   res.send(adminPage(req, order.orderId, `<h1>${esc(order.orderId)}</h1><div class="page-grid"><section class="panel pad"><h2>Customer</h2><p>${esc(order.customerName)}<br>${esc(order.mobile)}<br>${esc(order.email)}</p><p>${esc(order.addressLine1)}, ${esc(order.addressLine2)}<br>${esc(order.city)}, ${esc(order.state)} ${esc(order.pinCode)}</p><h2>Uploaded Image</h2>${orderUploadPreview(order, false)}<h2>Items</h2>${items}<h2>Pricing</h2>${summary({ subtotal: order.subtotal, shipping: order.shippingAmount, total: order.total })}</section><div class="grid">${form}<section class="panel pad"><h2>Email Triggers</h2><ul class="email-log">${notifications}</ul></section></div></div>`));
