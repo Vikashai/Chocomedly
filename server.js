@@ -14,6 +14,8 @@ const ROOT = __dirname;
 const DATA_DIR = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(ROOT, 'data');
 const UPLOAD_DIR = process.env.UPLOAD_DIR ? path.resolve(process.env.UPLOAD_DIR) : path.join(ROOT, 'public', 'uploads');
 const DB_FILE = path.join(DATA_DIR, 'store.json');
+const DB_DRIVER = String(process.env.DB_DRIVER || 'json').toLowerCase();
+const STORE_DB_FILE = process.env.STORE_DB_FILE ? path.resolve(process.env.STORE_DB_FILE) : path.join(DATA_DIR, 'chocomedley.sqlite');
 const PRODUCT_IMAGES = [
   '/img/WhatsApp Image 2026-08-11 at 7.32.16 PM.jpeg',
   '/img/WhatsApp Image 2026-08-11 at 7.36.53 PM.jpeg',
@@ -40,6 +42,7 @@ const INDIA_STATES = [
 fs.mkdirSync(DATA_DIR, { recursive: true });
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 fs.mkdirSync(LOG_DIR, { recursive: true });
+if (STORE_DB_FILE) fs.mkdirSync(path.dirname(STORE_DB_FILE), { recursive: true });
 
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
@@ -220,9 +223,55 @@ function ensureDemoAdmin(data) {
   return changed;
 }
 
+let sqliteStore = null;
+
+function getSqliteStore() {
+  if (DB_DRIVER !== 'sqlite') return null;
+  if (!sqliteStore) {
+    let DatabaseSync;
+    try {
+      ({ DatabaseSync } = require('node:sqlite'));
+    } catch (_) {
+      throw new Error('DB_DRIVER=sqlite requires Node.js 22.5+ or Node.js 24 on Hostinger.');
+    }
+    sqliteStore = new DatabaseSync(STORE_DB_FILE);
+    sqliteStore.exec('CREATE TABLE IF NOT EXISTS app_state (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)');
+  }
+  return sqliteStore;
+}
+
+function readStoredDb() {
+  const sqlite = getSqliteStore();
+  if (sqlite) {
+    const row = sqlite.prepare('SELECT value FROM app_state WHERE key = ?').get('store');
+    if (row?.value) return JSON.parse(row.value);
+    if (fs.existsSync(DB_FILE)) {
+      const imported = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+      writeStoredDb(imported);
+      return imported;
+    }
+    return null;
+  }
+  if (!fs.existsSync(DB_FILE)) return null;
+  return JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+}
+
+function writeStoredDb(data) {
+  const sqlite = getSqliteStore();
+  if (sqlite) {
+    sqlite.prepare('INSERT INTO app_state (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at')
+      .run('store', JSON.stringify(data), new Date().toISOString());
+    return;
+  }
+  fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
+}
+
 function readDb() {
-  if (!fs.existsSync(DB_FILE)) writeDb(seed());
-  const data = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+  let data = readStoredDb();
+  if (!data) {
+    data = seed();
+    writeDb(data);
+  }
   let changed = false;
   if (data.product?.name === 'Rocky Chocolate Hamper') {
     data.product.name = 'Rakhi Chocolate Hamper';
@@ -282,7 +331,7 @@ function readDb() {
 }
 
 function writeDb(data) {
-  fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
+  writeStoredDb(data);
 }
 
 function money(value) {

@@ -6,7 +6,7 @@ Use this branch/repository for production, not the Render demo branch.
 
 - App type: Node.js Web App
 - Framework: Express.js or Other
-- Node version: 20.x or 22.x
+- Node version: 24.x preferred, 22.x minimum
 - Build command: `npm ci`
 - Start command: `npm start`
 - Entry file: `server.js`
@@ -21,11 +21,24 @@ SESSION_SECRET=replace-with-a-long-random-string
 ADMIN_SETUP_ENABLED=true
 ADMIN_AUTH_DISABLED=false
 DEMO_ADMIN_ALLOW_ANY_LOGIN=false
+DB_DRIVER=sqlite
 DATA_DIR=/home/USERNAME/chocomedley-data
 UPLOAD_DIR=/home/USERNAME/chocomedley-uploads
+STORE_DB_FILE=/home/USERNAME/chocomedley-data/chocomedley.sqlite
 ```
 
 Replace `USERNAME` with the real Hostinger account username or choose another persistent writable path outside the auto-deployed code folder.
+
+## Real Database
+
+Production uses SQLite through Node's built-in `node:sqlite` module:
+
+- Database file: `STORE_DB_FILE`
+- App data: one durable `app_state` table
+- Sessions: `DATA_DIR/sessions.json`
+- Uploads: `UPLOAD_DIR`
+
+Keep `DB_DRIVER=sqlite` on Hostinger. Do not use `/tmp` paths for production.
 
 ## Create Admin
 
