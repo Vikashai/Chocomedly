@@ -156,6 +156,7 @@ label { display: grid; gap: 8px; font-weight: 850; font-size: 14px; line-height:
 .whatsapp-panel h2 { margin: 0; color: var(--plum); font-size: 20px; }
 .whatsapp-panel p { margin: 0; color: var(--muted); line-height: 1.55; }
 .success-panel .actions { margin-top: 18px; }
+.success-whatsapp { margin-top: 22px; max-width: 520px; }
 .track-results { display: grid; gap: 14px; }
 .track-card { display: grid; gap: 12px; padding: 16px; border: 1px solid var(--line); border-radius: 18px; background: #fffaf3; }
 .track-card h2 { margin: 4px 0 0; color: var(--plum); }

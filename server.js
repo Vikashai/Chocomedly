@@ -20,7 +20,7 @@ const PRODUCT_IMAGES = [
   '/img/WhatsApp Image 2026-08-11 at 7.49.51 PM.jpeg',
   '/img/WhatsApp Image 2026-08-11 at 7.56.50 PM.jpeg'
 ];
-const ASSET_VERSION = 'premium-20260813-7';
+const ASSET_VERSION = 'premium-20260813-8';
 const LOG_DIR = path.join(ROOT, 'storage', 'logs');
 const INDIA_STATES = [
   'Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh', 'Goa', 'Gujarat', 'Haryana',
@@ -448,8 +448,7 @@ app.get('/checkout', (req, res) => {
   const totals = cartTotals(req);
   const stateOptions = INDIA_STATES.map(state => `<option value="${esc(state)}">${esc(state)}</option>`).join('');
   const form = `<form class="panel grid pad" method="post" action="/checkout" data-once data-checkout-form novalidate>${csrfField(req)}<h1>Checkout</h1>${flashHtml(req)}<div class="grid two"><label>Full Name<input name="customerName" autocomplete="name" data-clean="person" data-rule="person" required><small class="field-error" data-error-for="customerName"></small></label><label>Mobile Number<input name="mobile" inputmode="numeric" autocomplete="tel" maxlength="10" data-clean="digits" data-rule="mobile" required><small class="field-error" data-error-for="mobile"></small></label></div><div class="grid two"><label>Alternate Mobile<input name="alternateMobile" inputmode="numeric" autocomplete="tel" maxlength="10" data-clean="digits" data-rule="optionalMobile"><small class="field-error" data-error-for="alternateMobile"></small></label><label>Email<input type="email" name="email" autocomplete="email" data-rule="optionalEmail"><small class="field-error" data-error-for="email"></small></label></div><label>Address Line 1<input name="addressLine1" autocomplete="address-line1" data-clean="address" data-rule="requiredText" required><small class="field-error" data-error-for="addressLine1"></small></label><label>Address Line 2<input name="addressLine2" autocomplete="address-line2" data-clean="address"></label><div class="grid two"><label>Landmark<input name="landmark" data-clean="address"></label><label>PIN Code<input name="pinCode" inputmode="numeric" autocomplete="postal-code" maxlength="6" data-clean="digits" data-rule="pin" required><small class="field-error" data-error-for="pinCode"></small></label></div><div class="grid two"><label>City<input name="city" autocomplete="address-level2" data-clean="person" data-rule="person" required><small class="field-error" data-error-for="city"></small></label><label>State<select name="state" required data-rule="requiredSelect"><option value="">Select state or union territory</option>${stateOptions}</select><small class="field-error" data-error-for="state"></small></label></div><label>Order Notes<textarea name="customerNotes" data-clean="address"></textarea></label><div class="notice"><strong>Payment:</strong> Cash on Delivery. Payment status remains Pending until collected.</div><button type="submit" class="btn primary" data-loading="Placing order...">Place COD Order</button></form>`;
-  const support = `<section class="whatsapp-panel"><p class="eyebrow">Concierge support</p><h2>Need help before placing the order?</h2><p>Chat with Chocomedley on WhatsApp for image guidance, gifting notes, delivery questions, or bulk orders.</p>${whatsappCta(db.settings, 'Continue on WhatsApp', 'Hi Chocomedley, I am at checkout and need help with my hamper order.', 'wide')}</section>`;
-  res.send(page(req, 'Checkout', `<main class="container page-grid">${form}<aside class="panel pad checkout-side"><h2>Total</h2>${summary(totals)}${support}</aside></main>`));
+  res.send(page(req, 'Checkout', `<main class="container page-grid">${form}<aside class="panel pad checkout-side"><h2>Total</h2>${summary(totals)}</aside></main>`));
 });
 
 app.post('/checkout', (req, res) => {
@@ -489,7 +488,8 @@ app.get('/success', (req, res) => {
   const db = readDb();
   const order = db.orders.find(o => o.orderId === req.session.lastOrder);
   if (!order) return res.redirect('/');
-  res.send(page(req, 'Order Placed', `<main class="container"><section class="panel pad success-panel"><p class="eyebrow">Thank you</p><h1>Your Order Has Been Placed.</h1><p class="lead">Order ID: <strong>${esc(order.orderId)}</strong></p><p>Payment: Cash on Delivery<br>Total: <strong>${money(order.total)}</strong><br>Mobile: ${esc(order.mobile)}</p><div class="actions"><a class="btn primary" href="/track">Track Order</a>${whatsappCta(db.settings, 'Message on WhatsApp', `Hi Chocomedley, I placed order ${order.orderId} and want to confirm the details.`)}</div></section></main>`));
+  const whatsappCard = `<section class="whatsapp-panel success-whatsapp"><p class="eyebrow">Stay updated</p><h2>Thank you for ordering your chocolates.</h2><p>Your hamper is now with Chocomedley. Meanwhile, join us on WhatsApp for tracking help, delivery updates, and quick support.</p>${whatsappCta(db.settings, 'Join WhatsApp for Updates', `Hi Chocomedley, I placed order ${order.orderId}. Please keep me updated on tracking and delivery.`, 'wide')}</section>`;
+  res.send(page(req, 'Order Placed', `<main class="container"><section class="panel pad success-panel"><p class="eyebrow">Thank you</p><h1>Your Order Has Been Placed.</h1><p class="lead">Order ID: <strong>${esc(order.orderId)}</strong></p><p>Payment: Cash on Delivery<br>Total: <strong>${money(order.total)}</strong><br>Mobile: ${esc(order.mobile)}</p><div class="actions"><a class="btn primary" href="/track">Track Order</a></div>${whatsappCard}</section></main>`));
 });
 
 app.get('/track', (req, res) => {
