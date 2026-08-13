@@ -185,10 +185,16 @@ const adminRules = {
   name: input => /^[\p{L}][\p{L}\s]{1,79}$/u.test(input.value.trim()) ? '' : 'Use letters only.',
   text: input => !input.value.trim() || input.value.trim().length >= 4 ? '' : 'Enter at least 4 characters.',
   money: input => /^\d+$/.test(input.value.trim()) ? '' : 'Use numbers only.',
-  optionalMoney: input => !input.value.trim() || /^\d+$/.test(input.value.trim()) ? '' : 'Use numbers only.',
+  optionalMoney: input => !input.value.trim() || /^\d+$/.test(input.value.trim()) ? offerPriceMessage(input) : 'Use numbers only.',
   wholeNumber: input => /^\d+$/.test(input.value.trim()) ? '' : 'Use numbers only.',
   optionalWholeNumber: input => !input.value.trim() || /^\d+$/.test(input.value.trim()) ? '' : 'Use numbers only.'
 };
+
+function offerPriceMessage(input) {
+  if (input.name !== 'offerPrice' || !input.value.trim()) return '';
+  const base = input.form?.querySelector('[name="basePrice"]');
+  return base && Number(input.value) >= Number(base.value || 0) ? 'Offer Price must be lower than Base Price.' : '';
+}
 
 function validateAdminField(input) {
   const message = adminRules[input.dataset.adminRule]?.(input) || '';

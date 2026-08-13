@@ -20,7 +20,7 @@ const PRODUCT_IMAGES = [
   '/img/WhatsApp Image 2026-08-11 at 7.49.51 PM.jpeg',
   '/img/WhatsApp Image 2026-08-11 at 7.56.50 PM.jpeg'
 ];
-const ASSET_VERSION = 'premium-20260813-15';
+const ASSET_VERSION = 'premium-20260813-16';
 const LOG_DIR = path.join(ROOT, 'storage', 'logs');
 const DEMO_ADMIN_EMAIL = process.env.DEMO_ADMIN_EMAIL || 'admin@chocomedley.in';
 const IS_RENDER = Boolean(process.env.RENDER || process.env.RENDER_EXTERNAL_URL || process.env.RENDER_SERVICE_ID);
@@ -239,6 +239,12 @@ function money(value) {
   return `₹${Number(value || 0).toLocaleString('en-IN')}`;
 }
 
+function sellingPrice(product) {
+  const base = Number(product.basePrice || 0);
+  const offer = Number(product.offerPrice || 0);
+  return offer > 0 && offer < base ? offer : base;
+}
+
 function esc(value = '') {
   return String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
@@ -436,7 +442,7 @@ function optionField(opt) {
 app.get('/', (req, res) => {
   const db = readDb();
   if (!db.product.active) return res.status(503).send(page(req, 'Unavailable', `<main class="container"><section class="panel pad"><h1>Rakhi Hamper is unavailable</h1></section></main>`));
-  const base = Number(db.product.offerPrice || db.product.basePrice);
+  const base = sellingPrice(db.product);
   const initialTotal = base + shipping(db.settings, base);
   const gallery = [db.product.imagePath, ...(db.product.galleryPaths || [])].filter(Boolean).filter((value, index, arr) => arr.indexOf(value) === index);
   const thumbs = gallery.map((src, index) => `<button type="button" data-thumb data-src="${esc(src)}" aria-label="View image ${index + 1}"><img src="${esc(src)}" alt="${esc(db.product.name)} view ${index + 1}"></button>`).join('');
@@ -480,7 +486,7 @@ function addLine(req, files) {
   if (!db.product.active) throw new Error('Product unavailable.');
   const quantity = Math.max(1, Math.min(99, Number(String(req.body.quantity || 1).replace(/\D/g, '') || 1)));
   const customizations = selectedCustomizations(req, files, db);
-  const basePrice = Number(db.product.offerPrice || db.product.basePrice);
+  const basePrice = sellingPrice(db.product);
   const customizationTotal = customizations.reduce((sum, c) => sum + c.price, 0);
   const lineTotal = (basePrice + customizationTotal) * quantity;
   return { key: crypto.randomBytes(8).toString('hex'), productId: db.product.id, productName: db.product.name, productImage: db.product.imagePath, basePrice, quantity, customizations, customizationTotal, lineTotal };
@@ -712,7 +718,10 @@ app.post('/admin/product', requireAdmin, upload.fields([{ name: 'imageUpload', m
     const typedGallery = String(req.body.galleryPaths || '').split(/\r?\n/).map(normalizePublicPath).filter(Boolean);
     const uploadedGallery = galleryUploads.map(uploadedPublicPath);
     const name = requireName(req.body.name, 'Product name');
-    Object.assign(db.product, { name, shortDescription: cleanPlainText(req.body.shortDescription), longDescription: cleanPlainText(req.body.longDescription), basePrice: parseMoneyField(req.body.basePrice, 'Base Price', true), offerPrice: parseMoneyField(req.body.offerPrice, 'Offer Price'), imagePath: uploadedPublicPath(mainUpload) || normalizePublicPath(req.body.imagePath), galleryPaths: [...typedGallery, ...uploadedGallery].filter((value, index, arr) => arr.indexOf(value) === index), active: Boolean(req.body.active), codAvailable: Boolean(req.body.codAvailable), deliveryText: cleanPlainText(req.body.deliveryText), details: cleanPlainText(req.body.details), ingredients: cleanPlainText(req.body.ingredients), care: cleanPlainText(req.body.care), faq: req.body.faq });
+    const basePrice = parseMoneyField(req.body.basePrice, 'Base Price', true);
+    const offerPrice = parseMoneyField(req.body.offerPrice, 'Offer Price');
+    if (offerPrice && offerPrice >= basePrice) throw new Error('Offer Price must be lower than Base Price. Leave it blank when there is no discount.');
+    Object.assign(db.product, { name, shortDescription: cleanPlainText(req.body.shortDescription), longDescription: cleanPlainText(req.body.longDescription), basePrice, offerPrice, imagePath: uploadedPublicPath(mainUpload) || normalizePublicPath(req.body.imagePath), galleryPaths: [...typedGallery, ...uploadedGallery].filter((value, index, arr) => arr.indexOf(value) === index), active: Boolean(req.body.active), codAvailable: Boolean(req.body.codAvailable), deliveryText: cleanPlainText(req.body.deliveryText), details: cleanPlainText(req.body.details), ingredients: cleanPlainText(req.body.ingredients), care: cleanPlainText(req.body.care), faq: req.body.faq });
     writeDb(db);
     flash(req, 'success', 'Product updated.');
   } catch (e) {
