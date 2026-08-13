@@ -212,7 +212,7 @@ function initAdminValidation() {
     name: value => value.replace(/[^\p{L}\s]/gu, '').replace(/\s{2,}/g, ' '),
     text: value => value.replace(/[^\p{L}\p{N}\s.,'&()/-]/gu, '').replace(/\s{2,}/g, ' '),
     phone: value => value.replace(/[^\d+\s()-]/g, ''),
-    person: value => value.replace(/[^A-Za-z ]/g, '').replace(/\s{2,}/g, ' '),
+    person: value => value.replace(/[^\p{L} ]/gu, '').replace(/\s{2,}/g, ' '),
     digits: value => value.replace(/\D/g, ''),
     decimal: value => {
       const cleaned = value.replace(/[^\d.]/g, '');

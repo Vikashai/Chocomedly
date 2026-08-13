@@ -640,7 +640,7 @@ th { background: #fff2d8; color: var(--plum); font-size: 13px; }
 }
 
 /* Launch-ready admin workspace */
-[hidden] { display: none !important; }
+[hidden], .admin-toggle[hidden] { display: none !important; }
 input[type="checkbox"], input[type="radio"] { width: 18px; height: 18px; min-height: 0; flex: 0 0 18px; margin: 0; padding: 0; border-radius: 4px; box-shadow: none; accent-color: var(--plum); }
 .activity-item i { animation: activityPulse 2.4s ease-out infinite; }
 .activity-item b { display: inline-block; min-width: 1ch; }
