@@ -1198,7 +1198,7 @@ function page(req, title, body, admin = false) {
   const whatsappLink = whatsapp ? `<a class="support-link" href="${esc(whatsapp)}" target="_blank" rel="noopener">WhatsApp</a>` : '';
   const announcement = db.settings.freeShippingEnabled ? 'Free shipping included on every order' : 'Carefully packed and delivered across India';
   const nav = admin ? '' : `<header class="site-header"><div class="announcement-bar"><span>${esc(announcement)}</span><span>Cash on delivery available</span><span>Delivery in 4-5 days</span></div><nav class="nav"><a class="brand" href="/"><img src="${esc(db.settings.logoPath)}" alt="${esc(db.settings.storeName)} logo"><span><strong>${esc(db.settings.storeName)}</strong><small>Artisan chocolates</small></span></a><div class="header-promises"><span><b>Freshly made</b><small>Prepared for your order</small></span><span><b>Delivered carefully</b><small>Usually in 4-5 days</small></span></div><div class="nav-actions"><a class="track-link" href="/track">Track order</a><a class="cart-link" href="/cart"><span>Cart</span><strong>${cartCount}</strong></a></div></nav></header>`;
-  const footer = admin ? '' : `<footer class="site-footer"><div class="footer-inner"><a class="footer-brand" href="/"><img src="${esc(db.settings.logoPath)}" alt=""><span><strong>${esc(db.settings.storeName)}</strong><small>Thoughtful gifts, made personal.</small></span></a><div class="footer-links"><a href="/">Shop hamper</a><a href="/track">Track order</a><a href="/privacy-policy">Privacy Policy</a>${whatsappLink}</div><p>Cash on delivery. Carefully packed in India.</p><p>Email: chocomedleyteam@gmail.com &middot; Phone: 7337002088</p></div></footer>`;
+  const footer = admin ? '' : `<footer class="site-footer"><div class="footer-inner"><a class="footer-brand" href="/"><img src="${esc(db.settings.logoPath)}" alt=""><span><strong>${esc(db.settings.storeName)}</strong><small>Thoughtful gifts, made personal.</small></span></a><div class="footer-links"><a href="/">Shop hamper</a><a href="/track">Track order</a><a href="/privacy-policy">Privacy Policy</a><a href="/terms-and-conditions">Terms and Conditions</a>${whatsappLink}</div><p>Cash on delivery. Carefully packed in India.</p><p>Email: chocomedleyteam@gmail.com &middot; Phone: 7337002088</p></div></footer>`;
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)} | ${esc(db.settings.storeName)}</title><meta name="description" content="Order the Rakhi Chocolate Hamper with custom image, extra almonds, and Cash on Delivery."><meta property="og:title" content="${esc(db.product.name)}"><meta property="og:description" content="${esc(db.product.shortDescription)}"><link rel="stylesheet" href="/assets/styles.css?v=${ASSET_VERSION}"><script defer src="/assets/app.js?v=${ASSET_VERSION}"></script></head><body>${nav}${body}${footer}</body></html>`;
 }
 
@@ -1971,6 +1971,56 @@ app.post('/admin/settings', requireAdmin, async (req, res) => {
   res.redirect('/admin/settings');
 });
 
+app.get('/terms-and-conditions', (req, res) => {
+  const body = `<main class="container legal-page"><section class="panel pad legal-content"><p class="eyebrow">Legal</p><h1>Terms and Conditions</h1><p class="lead">Welcome to ChocoMedley (https://www.chocomedley.com/). Please read these Terms and Conditions ("Terms") carefully before using our website. By accessing or using our website, you agree to be bound by these Terms. If you do not agree with any part of these terms, you must not use our website.</p>
+
+<h2>1. Introduction</h2>
+<p>ChocoMedley ("we," "us," or "our") operates this website to provide information about our products and services. These Terms govern your access to and use of the website and any orders placed through our platform.</p>
+
+<h2>2. User Eligibility</h2>
+<p>By using this website, you represent and warrant that you are at least 18 years of age (or the age of majority in your jurisdiction) or are accessing the site with the permission and supervision of a parent or guardian.</p>
+
+<h2>3. Products and Pricing</h2>
+<ul>
+<li><strong>Product Descriptions:</strong> We strive to ensure that all descriptions, images, and pricing of our chocolate products are accurate. However, we do not warrant that product descriptions or other content on the site are error-free.</li>
+<li><strong>Pricing:</strong> All prices are subject to change without notice. We reserve the right to modify or discontinue products at any time.</li>
+<li><strong>Availability:</strong> All orders are subject to availability. If an item you ordered is out of stock, we will notify you and process a refund or offer a suitable alternative.</li>
+</ul>
+
+<h2>4. Orders and Payment</h2>
+<ul>
+<li><strong>Order Acceptance:</strong> Your order is an offer to buy products from us. We reserve the right to accept or decline your order for any reason, including but not limited to, availability of products, errors in pricing, or suspicion of fraud.</li>
+<li><strong>Payment:</strong> We accept payments through secure methods provided on the checkout page. By submitting your payment information, you authorize us to charge the total amount of your order to your chosen payment method.</li>
+</ul>
+
+<h2>5. Shipping and Delivery</h2>
+<ul>
+<li><strong>Delivery Policy:</strong> We make every effort to deliver your order in a timely manner. However, we are not responsible for delays caused by shipping carriers, weather, or circumstances beyond our reasonable control.</li>
+<li><strong>Risk of Loss:</strong> The risk of loss and title for items purchased from us passes to you upon our delivery of the items to the carrier.</li>
+</ul>
+
+<h2>6. Returns and Refunds</h2>
+<p>Given the perishable nature of chocolate and food products, returns are handled on a case-by-case basis. If you receive a damaged or incorrect order, please contact us within 24 hours of delivery. We may require photographic evidence of the issue.</p>
+
+<h2>7. Intellectual Property</h2>
+<p>All content on this website, including text, logos, images, and software, is the property of ChocoMedley and is protected by intellectual property laws. You may not reproduce, distribute, or modify any content without our prior written consent.</p>
+
+<h2>8. Limitation of Liability</h2>
+<p>To the fullest extent permitted by law, ChocoMedley shall not be liable for any indirect, incidental, special, or consequential damages resulting from the use or inability to use our products or services, even if we have been advised of the possibility of such damages.</p>
+
+<h2>9. Privacy</h2>
+<p>Your use of our website is also governed by our <a href="/privacy-policy">Privacy Policy</a>, which explains how we collect and protect your personal data.</p>
+
+<h2>10. Governing Law</h2>
+<p>These Terms shall be governed by and construed in accordance with the laws of India, without regard to its conflict of law provisions. Any disputes arising out of these terms shall be subject to the exclusive jurisdiction of the courts in India.</p>
+
+<h2>11. Contact Information</h2>
+<p>If you have any questions or concerns regarding these Terms and Conditions, please contact us:</p>
+<p>Email: chocomedleyteam@gmail.com<br>Phone: 7337002088</p>
+</section></main>`;
+  res.send(page(req, 'Terms and Conditions', body));
+});
+
 app.get('/privacy-policy', (req, res) => {
   const body = `<main class="container legal-page"><section class="panel pad legal-content"><p class="eyebrow">Legal</p><h1>Privacy Policy</h1><p class="lead">Welcome to ChocoMedley (https://www.chocomedley.com/). We respect your privacy and are committed to protecting the personal information you share with us. This Privacy Policy outlines how we collect, use, disclose, and safeguard your data when you visit our website or make a purchase from us.</p>
 
@@ -2030,7 +2080,7 @@ app.get('/robots.txt', (_, res) => res.type('text/plain').send('User-agent: *\nA
 app.get('/sitemap.xml', (req, res) => {
   const origin = `${req.protocol}://${req.get('host')}`;
   const xmlOrigin = origin.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
-  res.type('application/xml').send(`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>${xmlOrigin}/</loc></url><url><loc>${xmlOrigin}/track</loc></url><url><loc>${xmlOrigin}/privacy-policy</loc></url></urlset>`);
+  res.type('application/xml').send(`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>${xmlOrigin}/</loc></url><url><loc>${xmlOrigin}/track</loc></url><url><loc>${xmlOrigin}/privacy-policy</loc></url><url><loc>${xmlOrigin}/terms-and-conditions</loc></url></urlset>`);
 });
 
 app.use((error, req, res, next) => {
