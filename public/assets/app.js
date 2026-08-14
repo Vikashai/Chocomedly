@@ -223,7 +223,8 @@ function initAdminValidation() {
       const [whole = '', ...fractions] = cleaned.split('.');
       return fractions.length ? `${whole}.${fractions.join('').slice(0, 2)}` : whole;
     },
-    address: value => value.replace(/[^\p{L}\p{N}\s.,'&()/:°–-]/gu, '').replace(/\s{2,}/g, ' ')
+    address: value => value.replace(/[^\p{L}\p{N}\s.,'&()/:°–-]/gu, '').replace(/\s{2,}/g, ' '),
+    code: value => value.toUpperCase().replace(/[^A-Z0-9]/g, '')
   };
   document.querySelectorAll('[data-clean]').forEach(input => {
     const clean = cleaners[input.dataset.clean];

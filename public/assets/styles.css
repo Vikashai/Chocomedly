@@ -532,6 +532,17 @@ th { background: #fff2d8; color: var(--plum); font-size: 13px; }
 .checkout-item strong { color: var(--plum); font-size: 12px; }
 .checkout-item small { color: var(--muted); font-size: 10px; }
 .checkout-item b { color: var(--plum); font-size: 12px; }
+.coupon-form { padding: 12px 0; border-bottom: 1px solid var(--line); }
+.coupon-form label { gap: 6px; }
+.coupon-input-row { display: flex; gap: 8px; }
+.coupon-input-row input { min-height: 44px; text-transform: uppercase; }
+.coupon-input-row .btn { min-height: 44px; padding: 0 16px; flex: 0 0 auto; }
+.coupon-applied { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 14px; border: 1px solid rgba(22,108,74,.2); border-radius: 8px; background: #f5fbf7; }
+.coupon-applied div { display: grid; gap: 2px; }
+.coupon-applied span { color: var(--muted); font-size: 10px; font-weight: 850; text-transform: uppercase; letter-spacing: .06em; }
+.coupon-applied strong { color: var(--success); font-size: 14px; }
+.link-btn { border: 0; background: transparent; padding: 4px; color: var(--danger); font-size: 12px; font-weight: 900; cursor: pointer; }
+.summary-discount strong { color: var(--success); }
 .checkout-assurance { display: grid; gap: 3px; margin-top: 12px; padding: 13px; border-radius: 8px; background: #faf5ed; }
 .checkout-assurance strong { color: var(--plum); font-size: 12px; }
 .checkout-assurance span { color: var(--muted); font-size: 11px; line-height: 1.45; }

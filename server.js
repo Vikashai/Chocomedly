@@ -458,8 +458,10 @@ function seed() {
       { id: 4, title: 'Gift Message', description: 'Write a small note for the recipient.', type: 'textarea', choices: [], price: 0, required: false, active: true, uploadRequired: false, order: 40, maxLength: 250, placeholder: 'Your message' }
     ],
     orders: [],
+    coupons: [],
     nextOrderNumber: 10001,
-    nextOptionId: 5
+    nextOptionId: 5,
+    nextCouponId: 1
   };
 }
 
@@ -641,6 +643,10 @@ function readDb() {
     data.adminResetTokens = [];
     changed = true;
   }
+  if (!Array.isArray(data.coupons)) {
+    data.coupons = [];
+    changed = true;
+  }
   const activeResetTokens = data.adminResetTokens.filter(token => Number(token.expiresAt) > Date.now());
   if (activeResetTokens.length !== data.adminResetTokens.length) {
     data.adminResetTokens = activeResetTokens;
@@ -774,6 +780,7 @@ function readDb() {
     changed = true;
   }
   data.nextOptionId = Math.max(Number(data.nextOptionId || 1), ...data.options.map(o => Number(o.id || 0) + 1), 5);
+  data.nextCouponId = Math.max(Number(data.nextCouponId || 1), ...data.coupons.map(c => Number(c.id || 0) + 1), 1);
   if (changed) void writeDb(data);
   return data;
 }
@@ -945,6 +952,32 @@ function normalizedOptionInput(body) {
     maxLength: ['text', 'textarea'].includes(type) && maxLength ? maxLength : '',
     placeholder: ['text', 'textarea'].includes(type) ? cleanPlainText(body.placeholder).slice(0, 120) : ''
   };
+}
+
+function normalizeCouponCode(value = '') {
+  return String(value || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 20);
+}
+
+function normalizedCouponInput(db, body, excludeId = null) {
+  const code = normalizeCouponCode(body.code);
+  if (code.length < 3) throw new Error('Coupon code must be at least 3 letters or numbers.');
+  const type = body.type === 'flat' ? 'flat' : 'percent';
+  const value = parseMoneyField(body.value, 'Discount value', true);
+  if (type === 'percent' && (value <= 0 || value > 100)) throw new Error('Percent discount must be between 1 and 100.');
+  if (type === 'flat' && value <= 0) throw new Error('Flat discount amount must be greater than 0.');
+  if (db.coupons.some(c => c.code === code && String(c.id) !== String(excludeId))) throw new Error('A coupon with this code already exists.');
+  return { code, type, value, active: Boolean(body.active) };
+}
+
+function findActiveCoupon(db, code) {
+  const normalized = normalizeCouponCode(code);
+  return normalized ? db.coupons.find(c => c.code === normalized && c.active) || null : null;
+}
+
+function couponDiscount(coupon, subtotal) {
+  if (!coupon || !(subtotal > 0)) return 0;
+  const raw = coupon.type === 'percent' ? (subtotal * Number(coupon.value)) / 100 : Number(coupon.value);
+  return Math.max(0, Math.min(subtotal, Math.round(raw)));
 }
 
 function orderUploads(order) {
@@ -1167,7 +1200,10 @@ function cartTotals(req) {
   const db = readDb();
   const subtotal = cart(req).reduce((sum, item) => sum + item.lineTotal, 0);
   const ship = subtotal > 0 ? shipping(db.settings, subtotal) : 0;
-  return { subtotal, shipping: ship, total: subtotal + ship };
+  const coupon = findActiveCoupon(db, req.session.couponCode);
+  if (!coupon && req.session.couponCode) delete req.session.couponCode;
+  const discount = couponDiscount(coupon, subtotal);
+  return { subtotal, shipping: ship, discount, couponCode: coupon ? coupon.code : '', total: Math.max(0, subtotal + ship - discount) };
 }
 
 function assertCsrf(req) {
@@ -1382,11 +1418,19 @@ app.post('/cart/update', (req, res) => {
 });
 
 function summary(t) {
-  return `<div class="summary-line"><span>Subtotal</span><strong>${money(t.subtotal)}</strong></div><div class="summary-note">Free shipping included in the price.</div><div class="summary-line"><span>Total</span><strong>${money(t.total)}</strong></div>`;
+  const discountLine = t.discount > 0 ? `<div class="summary-line summary-discount"><span>Coupon${t.couponCode ? ` (${esc(t.couponCode)})` : ''}</span><strong>-${money(t.discount)}</strong></div>` : '';
+  return `<div class="summary-line"><span>Subtotal</span><strong>${money(t.subtotal)}</strong></div>${discountLine}<div class="summary-note">Free shipping included in the price.</div><div class="summary-line"><span>Total</span><strong>${money(t.total)}</strong></div>`;
 }
 
 function checkoutItems(req) {
   return cart(req).map(item => `<div class="checkout-item"><img src="${esc(item.productImage)}" alt=""><div><strong>${esc(item.productName)}</strong><small>Quantity ${item.quantity}</small><small>${item.customizations.length} personalisation${item.customizations.length === 1 ? '' : 's'}</small></div><b>${money(item.lineTotal)}</b></div>`).join('');
+}
+
+function couponBlock(req, totals) {
+  if (totals.couponCode) {
+    return `<form method="post" action="/checkout/remove-coupon" class="coupon-form coupon-applied">${csrfField(req)}<div><span>Coupon applied</span><strong>${esc(totals.couponCode)}</strong></div><button type="submit" class="link-btn">Remove</button></form>`;
+  }
+  return `<form method="post" action="/checkout/apply-coupon" class="coupon-form">${csrfField(req)}<label>Promo code <span class="optional-label">Optional</span><div class="coupon-input-row"><input name="couponCode" maxlength="20" placeholder="Enter code" data-clean="code" autocomplete="off"><button type="submit" class="btn ghost">Apply</button></div></label></form>`;
 }
 
 app.get('/checkout', (req, res) => {
@@ -1399,7 +1443,31 @@ app.get('/checkout', (req, res) => {
   const totals = cartTotals(req);
   const stateOptions = INDIA_STATES.map(state => `<option value="${esc(state)}">${esc(state)}</option>`).join('');
   const form = `<form class="checkout-form" method="post" action="/checkout" data-once data-checkout-form novalidate>${csrfField(req)}${flashHtml(req)}<section class="checkout-section"><div class="form-section-head"><span>1</span><div><h2>Contact details</h2><p>We use these details only for your order and delivery.</p></div></div><div class="grid two"><label>Full name<input name="customerName" autocomplete="name" maxlength="60" data-clean="person" data-rule="person" required><small class="field-error" data-error-for="customerName"></small></label><label>Mobile number<input name="mobile" inputmode="numeric" autocomplete="tel" maxlength="10" data-clean="digits" data-rule="mobile" required><small class="field-error" data-error-for="mobile"></small></label></div><div class="grid two"><label>Alternate mobile <span class="optional-label">Optional</span><input name="alternateMobile" inputmode="numeric" autocomplete="tel" maxlength="10" data-clean="digits" data-rule="optionalMobile"><small class="field-error" data-error-for="alternateMobile"></small></label><label>Email <span class="optional-label">Optional</span><input type="email" name="email" maxlength="254" autocomplete="email" data-rule="optionalEmail"><small class="field-error" data-error-for="email"></small></label></div></section><section class="checkout-section"><div class="form-section-head"><span>2</span><div><h2>Delivery address</h2><p>Enter the complete address where the hamper should arrive.</p></div></div><label>Address line 1<input name="addressLine1" autocomplete="address-line1" maxlength="180" data-clean="address" data-rule="requiredText" required><small class="field-error" data-error-for="addressLine1"></small></label><label>Address line 2 <span class="optional-label">Optional</span><input name="addressLine2" autocomplete="address-line2" maxlength="180" data-clean="address"></label><div class="grid two"><label>Landmark <span class="optional-label">Optional</span><input name="landmark" maxlength="120" data-clean="address"><small class="field-error" data-error-for="landmark"></small></label><label>PIN code<input name="pinCode" inputmode="numeric" autocomplete="postal-code" maxlength="6" data-clean="digits" data-rule="pin" required><small class="field-error" data-error-for="pinCode"></small></label></div><div class="grid two"><label>City<input name="city" autocomplete="address-level2" maxlength="60" data-clean="person" data-rule="person" required><small class="field-error" data-error-for="city"></small></label><label>State<select name="state" required data-rule="requiredSelect"><option value="">Select state or union territory</option>${stateOptions}</select><small class="field-error" data-error-for="state"></small></label></div><label>Order notes <span class="optional-label">Optional</span><textarea name="customerNotes" maxlength="500" data-clean="address" placeholder="Delivery instructions or a note for our team"></textarea></label></section><div class="payment-choice"><span>Free shipping</span><div><strong>Delivery is included in the price</strong><small>No extra shipping charge will be added at checkout.</small></div></div><div class="payment-choice"><span>Cash on delivery</span><div><strong>Pay when your hamper arrives</strong><small>No online payment is required today.</small></div></div><label class="checkout-consent"><input type="checkbox" name="orderConfirmation" value="1" required data-rule="confirmation"><span><strong>Confirm this cash on delivery order</strong><small>I have checked the delivery details and agree to be contacted about this order.</small></span></label><small class="field-error checkout-consent-error" data-error-for="orderConfirmation"></small><button type="submit" class="btn dark wide checkout-submit" data-loading="Placing order...">Place cash on delivery order</button></form>`;
-  res.send(page(req, 'Checkout', `<main class="container checkout-page"><div class="page-heading checkout-heading"><div><p class="eyebrow">Secure checkout</p><h1>Delivery details</h1><p>Your personalised hamper is almost ready.</p></div><a href="/cart">Return to cart</a></div><div class="checkout-layout">${form}<aside class="panel checkout-summary"><p class="eyebrow">Your order</p><div class="checkout-items">${checkoutItems(req)}</div>${summary(totals)}<div class="checkout-assurance"><strong>Free shipping included</strong><span>The price shown already includes delivery. Photos are used only to prepare your personalised order.</span></div></aside></div></main>`));
+  res.send(page(req, 'Checkout', `<main class="container checkout-page"><div class="page-heading checkout-heading"><div><p class="eyebrow">Secure checkout</p><h1>Delivery details</h1><p>Your personalised hamper is almost ready.</p></div><a href="/cart">Return to cart</a></div><div class="checkout-layout">${form}<aside class="panel checkout-summary"><p class="eyebrow">Your order</p><div class="checkout-items">${checkoutItems(req)}</div>${couponBlock(req, totals)}${summary(totals)}<div class="checkout-assurance"><strong>Free shipping included</strong><span>The price shown already includes delivery. Photos are used only to prepare your personalised order.</span></div></aside></div></main>`));
+});
+
+app.post('/checkout/apply-coupon', routeRateLimit('apply-coupon', 15, 15 * 60 * 1000), (req, res) => {
+  try {
+    assertCsrf(req);
+    const db = readDb();
+    const code = normalizeCouponCode(req.body.couponCode);
+    if (!code) throw new Error('Enter a coupon code.');
+    const coupon = findActiveCoupon(db, code);
+    if (!coupon) throw new Error('That coupon code is not valid.');
+    req.session.couponCode = coupon.code;
+    flash(req, 'success', `Coupon ${coupon.code} applied.`);
+  } catch (e) {
+    delete req.session.couponCode;
+    flash(req, 'error', e.message || 'That coupon code is not valid.');
+  }
+  res.redirect('/checkout');
+});
+
+app.post('/checkout/remove-coupon', (req, res) => {
+  try { assertCsrf(req); } catch (e) { flash(req, 'error', e.message); return res.redirect('/checkout'); }
+  delete req.session.couponCode;
+  flash(req, 'success', 'Coupon removed.');
+  res.redirect('/checkout');
 });
 
 app.post('/checkout', routeRateLimit('checkout', 5, 30 * 60 * 1000), async (req, res) => {
@@ -1427,6 +1495,8 @@ app.post('/checkout', routeRateLimit('checkout', 5, 30 * 60 * 1000), async (req,
     }
     const subtotal = items.reduce((sum, item) => sum + item.lineTotal, 0);
     const ship = shipping(db.settings, subtotal);
+    const coupon = findActiveCoupon(db, req.session.couponCode);
+    const discount = couponDiscount(coupon, subtotal);
     const orderId = `RAKHI-${db.nextOrderNumber++}`;
     const now = new Date().toISOString();
     const order = {
@@ -1435,13 +1505,14 @@ app.post('/checkout', routeRateLimit('checkout', 5, 30 * 60 * 1000), async (req,
       addressLine1, addressLine2: cleanPlainText(req.body.addressLine2).slice(0, 180), landmark: cleanPlainText(req.body.landmark).slice(0, 120), city: cleanPlainText(city), state, pinCode,
       customerNotes: cleanPlainText(req.body.customerNotes).slice(0, 500), adminNotes: '', paymentMethod: 'Cash on Delivery', paymentStatus: 'Pending', orderStatus: 'New Order',
       courier: '', trackingNumber: '', trackingUrl: '', shippingDate: '', estimatedDeliveryDate: '',
-      items: JSON.parse(JSON.stringify(items)), subtotal, shippingAmount: ship, total: subtotal + ship,
+      items: JSON.parse(JSON.stringify(items)), subtotal, shippingAmount: ship, couponCode: coupon ? coupon.code : '', discountAmount: discount, total: Math.max(0, subtotal + ship - discount),
       statusHistory: [{ status: 'New Order', at: now }]
     };
     db.orders.unshift(order);
     await writeDb(db);
     req.session.cart = [];
     req.session.lastOrder = orderId;
+    delete req.session.couponCode;
     res.redirect('/success');
   } catch (e) {
     console.error('Checkout failed:', e);
@@ -1496,6 +1567,7 @@ const ADMIN_LINKS = [
   { href: '/admin/orders', label: 'Orders', match: pathValue => pathValue.startsWith('/admin/orders') },
   { href: '/admin/product', label: 'Product', match: pathValue => pathValue.startsWith('/admin/product') },
   { href: '/admin/customizations', label: 'Customizations', match: pathValue => pathValue.startsWith('/admin/customizations') },
+  { href: '/admin/coupons', label: 'Coupons', match: pathValue => pathValue.startsWith('/admin/coupons') },
   { href: '/admin/settings', label: 'Settings', match: pathValue => pathValue.startsWith('/admin/settings') },
   { href: '/admin/team', label: 'Team', match: pathValue => pathValue.startsWith('/admin/team') }
 ];
@@ -1764,7 +1836,7 @@ app.get('/admin/orders/:orderId', requireAdmin, (req, res) => {
   const items = order.items.map(item => `<h3>${esc(item.productName)} x ${item.quantity}</h3><p><span class="info-label">Base:</span> ${money(item.basePrice)} | <span class="info-label">Line:</span> ${money(item.lineTotal)}</p>${item.customizations.map(c => `<div class="order-customization"><p><span class="info-label">${esc(c.title)}:</span> ${esc(c.value)} (+${money(c.price)})</p></div>`).join('')}`).join('');
   const notifications = (order.emailNotifications || []).slice(0, 4).map(n => `<li><strong>${esc(n.status)}</strong> ${esc(n.result)} ${n.to ? `to ${esc(n.to)}` : ''}<small>${esc(n.at)}</small></li>`).join('') || '<li class="muted">No status emails triggered yet.</li>';
   const form = `<form class="panel grid pad admin-fulfilment-form" method="post" action="/admin/orders/${esc(order.orderId)}" data-admin-form>${csrfField(req)}<h2>Fulfilment</h2><div class="grid two"><label>Order status<select name="orderStatus">${statusOptions(order.orderStatus)}</select></label><label>Payment status<select name="paymentStatus">${['Pending', 'Collected', 'Failed', 'Refunded'].map(s => `<option ${order.paymentStatus === s ? 'selected' : ''}>${s}</option>`).join('')}</select></label></div>${emailNotifyToggle(order, 'Send status email when changed')}<div class="grid two"><label>Courier<input name="courier" value="${esc(order.courier)}" maxlength="80" data-clean="text"></label><label>Tracking number<input name="trackingNumber" value="${esc(order.trackingNumber)}" maxlength="100"></label></div><label>Tracking URL<input type="url" name="trackingUrl" value="${esc(order.trackingUrl)}" placeholder="https://courier.example/track/..."></label><div class="grid two"><label>Shipping date<input type="date" name="shippingDate" value="${esc(order.shippingDate)}"></label><label>Estimated delivery<input type="date" name="estimatedDeliveryDate" value="${esc(order.estimatedDeliveryDate)}"></label></div><label>Admin notes<textarea name="adminNotes" maxlength="1000">${esc(order.adminNotes)}</textarea></label><button type="submit" class="btn primary">Save order</button></form>`;
-  res.send(adminPage(req, order.orderId, `${adminHeading('Order details', order.orderId, `${order.customerName} · ${order.mobile}`, `<span class="status-pill">${esc(order.orderStatus)}</span>`)}<div class="page-grid admin-order-detail"><section class="panel pad"><div class="admin-section-head"><h2>Customer</h2><span class="order-total">${money(order.total)}</span></div><p>${esc(order.customerName)}<br>${esc(order.mobile)}${order.email ? `<br>${esc(order.email)}` : ''}</p><p>${esc(order.addressLine1)}${order.addressLine2 ? `, ${esc(order.addressLine2)}` : ''}<br>${esc(order.city)}, ${esc(order.state)} ${esc(order.pinCode)}</p><section class="uploaded-designs" id="uploaded-designs"><div class="uploaded-designs-head"><div><h2>Uploaded designs</h2><p class="muted">Open a design at full size or download the original file.</p></div><span>${orderUploads(order).length}</span></div>${orderUploadPreview(order, false)}</section><h2>Items</h2>${items}<h2>Pricing</h2>${summary({ subtotal: order.subtotal, shipping: order.shippingAmount, total: order.total })}</section><div class="grid">${form}<section class="panel pad"><h2>Email delivery</h2>${smtpConfigured() ? '<p class="notice success">SMTP is configured. Status emails can be sent.</p>' : '<p class="notice error">SMTP is not configured. Add SMTP settings in Hostinger before relying on customer emails.</p>'}<ul class="email-log">${notifications}</ul></section></div></div>`));
+  res.send(adminPage(req, order.orderId, `${adminHeading('Order details', order.orderId, `${order.customerName} · ${order.mobile}`, `<span class="status-pill">${esc(order.orderStatus)}</span>`)}<div class="page-grid admin-order-detail"><section class="panel pad"><div class="admin-section-head"><h2>Customer</h2><span class="order-total">${money(order.total)}</span></div><p>${esc(order.customerName)}<br>${esc(order.mobile)}${order.email ? `<br>${esc(order.email)}` : ''}</p><p>${esc(order.addressLine1)}${order.addressLine2 ? `, ${esc(order.addressLine2)}` : ''}<br>${esc(order.city)}, ${esc(order.state)} ${esc(order.pinCode)}</p><section class="uploaded-designs" id="uploaded-designs"><div class="uploaded-designs-head"><div><h2>Uploaded designs</h2><p class="muted">Open a design at full size or download the original file.</p></div><span>${orderUploads(order).length}</span></div>${orderUploadPreview(order, false)}</section><h2>Items</h2>${items}<h2>Pricing</h2>${summary({ subtotal: order.subtotal, shipping: order.shippingAmount, discount: order.discountAmount || 0, couponCode: order.couponCode || '', total: order.total })}</section><div class="grid">${form}<section class="panel pad"><h2>Email delivery</h2>${smtpConfigured() ? '<p class="notice success">SMTP is configured. Status emails can be sent.</p>' : '<p class="notice error">SMTP is not configured. Add SMTP settings in Hostinger before relying on customer emails.</p>'}<ul class="email-log">${notifications}</ul></section></div></div>`));
 });
 
 app.post('/admin/orders/:orderId', requireAdmin, async (req, res) => {
@@ -1941,6 +2013,55 @@ app.post('/admin/customizations/delete', requireAdmin, async (req, res) => {
   await writeDb(db);
   flash(req, 'success', 'Customization deleted.');
   res.redirect('/admin/customizations');
+});
+
+app.get('/admin/coupons', requireAdmin, (req, res) => {
+  const db = readDb();
+  const editorFields = coupon => `<div class="admin-fields two"><label>Coupon code<input name="code" value="${esc(coupon.code || '')}" maxlength="20" data-clean="code" placeholder="e.g. SAVE10" required><small class="field-error" data-error-for="code"></small></label><label>Discount type<select name="type"><option value="percent" ${coupon.type !== 'flat' ? 'selected' : ''}>Percent off</option><option value="flat" ${coupon.type === 'flat' ? 'selected' : ''}>Flat amount off (₹)</option></select></label></div><div class="admin-fields two"><label>Discount value <span class="field-hint">Percent (1-100) or flat ₹ amount</span><input name="value" value="${esc(coupon.value ?? '')}" inputmode="decimal" maxlength="10" data-clean="decimal" data-admin-rule="positiveMoney" required><small class="field-error" data-error-for="value"></small></label><div></div></div><div class="admin-toggle-grid">${adminToggle('active', 'Active', 'Customers can apply this coupon at checkout.', coupon.active !== false)}</div>`;
+  const editCards = [...db.coupons].sort((a, b) => (a.code || '').localeCompare(b.code || '')).map(c => `<article class="admin-option-card"><form method="post" action="/admin/coupons/update" data-admin-form>${csrfField(req)}<input type="hidden" name="id" value="${c.id}"><header class="admin-option-head"><div><span class="admin-option-type">${c.type === 'flat' ? 'Flat amount' : 'Percent'}</span><h2>${esc(c.code)}</h2><p>${c.type === 'flat' ? money(c.value) : `${Number(c.value)}%`} off</p></div><span class="admin-status ${c.active ? 'is-live' : ''}">${c.active ? 'Active' : 'Disabled'}</span></header><div class="admin-option-body">${editorFields(c)}</div><footer class="admin-option-actions"><button class="btn primary" data-loading="Saving...">Save changes</button></footer></form><form method="post" action="/admin/coupons/delete" class="admin-option-delete">${csrfField(req)}<input type="hidden" name="id" value="${c.id}"><button class="btn danger" data-confirm="Delete coupon ${esc(c.code)}? This cannot be undone.">Delete coupon</button></form></article>`).join('');
+  const blankCoupon = { code: '', type: 'percent', value: '', active: true };
+  const createForm = `<details class="admin-create-option"><summary><span>+</span><div><strong>Add coupon</strong><small>Create a new promo code for checkout</small></div></summary><form method="post" action="/admin/coupons" data-admin-form>${csrfField(req)}<div class="admin-option-body">${editorFields(blankCoupon)}</div><div class="admin-option-actions"><button class="btn primary" data-loading="Creating...">Create coupon</button></div></form></details>`;
+  res.send(adminPage(req, 'Coupons', `${adminHeading('Promotions', 'Coupons', 'Create promo codes customers can apply at checkout. Codes stay private unless you share them.', `<span class="order-total">${db.coupons.length} coupon${db.coupons.length === 1 ? '' : 's'}</span>`)}<div class="admin-options">${editCards || '<div class="admin-empty-state"><strong>No coupons yet</strong><span>Create one below to get started.</span></div>'}</div>${createForm}`));
+});
+
+app.post('/admin/coupons', requireAdmin, async (req, res) => {
+  const db = readDb();
+  try {
+    db.coupons.push({ id: db.nextCouponId++, ...normalizedCouponInput(db, req.body), createdAt: new Date().toISOString() });
+    await writeDb(db);
+    flash(req, 'success', 'Coupon created.');
+  } catch (e) {
+    flash(req, 'error', e.message);
+  }
+  res.redirect('/admin/coupons');
+});
+
+app.post('/admin/coupons/update', requireAdmin, async (req, res) => {
+  const db = readDb();
+  const coupon = db.coupons.find(c => String(c.id) === String(req.body.id));
+  if (coupon) {
+    try {
+      Object.assign(coupon, normalizedCouponInput(db, req.body, coupon.id));
+      await writeDb(db);
+      flash(req, 'success', 'Coupon updated.');
+    } catch (e) {
+      flash(req, 'error', e.message);
+    }
+  }
+  res.redirect('/admin/coupons');
+});
+
+app.post('/admin/coupons/delete', requireAdmin, async (req, res) => {
+  const db = readDb();
+  const coupon = db.coupons.find(c => String(c.id) === String(req.body.id));
+  if (!coupon) {
+    flash(req, 'error', 'Coupon not found.');
+    return res.redirect('/admin/coupons');
+  }
+  db.coupons = db.coupons.filter(c => String(c.id) !== String(req.body.id));
+  await writeDb(db);
+  flash(req, 'success', 'Coupon deleted.');
+  res.redirect('/admin/coupons');
 });
 
 app.get('/admin/settings', requireAdmin, (req, res) => {
