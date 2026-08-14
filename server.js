@@ -134,6 +134,8 @@ const PRODUCT_IMAGES = [
 const ASSET_VERSION = 'launch-20260813-23';
 const MAX_ORDER_QUANTITY = 20;
 const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
+const PUBLIC_WHATSAPP_NUMBER = String(process.env.PUBLIC_WHATSAPP_NUMBER || '7569907353').trim();
+const DEFAULT_ORDER_EMAIL = String(process.env.ORDER_EMAIL_ACCOUNT || 'chocomedley@gmail.com').trim();
 const DEMO_ADMIN_EMAIL = process.env.DEMO_ADMIN_EMAIL || 'admin@chocomedley.in';
 const IS_RENDER = Boolean(process.env.RENDER || process.env.RENDER_EXTERNAL_URL || process.env.RENDER_SERVICE_ID);
 const DEMO_ADMIN_ENABLED = process.env.DEMO_ADMIN_ENABLED === 'true' || IS_RENDER || process.env.NODE_ENV !== 'production';
@@ -420,8 +422,8 @@ function seed() {
       storeName: 'Chocomedley',
       logoPath: '/img/WhatsApp Image 2026-08-12 at 1.24.57 PM.jpeg',
       contactPhone: '+91 98765 43210',
-      whatsappNumber: '+91 98765 43210',
-      supportEmail: 'hello@chocomedley.in',
+      whatsappNumber: PUBLIC_WHATSAPP_NUMBER,
+      supportEmail: DEFAULT_ORDER_EMAIL,
       storeAddress: 'Artisan chocolate kitchen, India',
       shippingFee: 200,
       freeShippingEnabled: false,
@@ -675,6 +677,14 @@ function readDb() {
   }
   if (ensureDemoAdmin(data)) changed = true;
   if (ensureRecoveryAdmin(data)) changed = true;
+  if (PUBLIC_WHATSAPP_NUMBER && data.settings?.whatsappNumber !== PUBLIC_WHATSAPP_NUMBER) {
+    data.settings.whatsappNumber = PUBLIC_WHATSAPP_NUMBER;
+    changed = true;
+  }
+  if (DEFAULT_ORDER_EMAIL && data.settings?.supportEmail && data.settings.supportEmail !== DEFAULT_ORDER_EMAIL && /hello@chocomedley\.in/i.test(data.settings.supportEmail)) {
+    data.settings.supportEmail = DEFAULT_ORDER_EMAIL;
+    changed = true;
+  }
   if (!data.product.imagePath || data.product.imagePath.includes('2026-08-12')) {
     data.product.imagePath = PRODUCT_IMAGES[0];
     changed = true;
@@ -967,19 +977,32 @@ function statusOptions(current) {
 
 let mailTransporter = null;
 
+function smtpSettings() {
+  let password = isPlaceholderValue(process.env.SMTP_PASSWORD) ? '' : String(process.env.SMTP_PASSWORD || '').trim();
+  const user = isPlaceholderValue(process.env.SMTP_USER) ? DEFAULT_ORDER_EMAIL : String(process.env.SMTP_USER || DEFAULT_ORDER_EMAIL).trim();
+  const host = isPlaceholderValue(process.env.SMTP_HOST) ? 'smtp.gmail.com' : String(process.env.SMTP_HOST || 'smtp.gmail.com').trim();
+  if (/gmail\.com$/i.test(host)) password = password.replace(/\s+/g, '');
+  const port = Number(process.env.SMTP_PORT || 587);
+  const secure = process.env.SMTP_SECURE === 'true' || port === 465;
+  const from = isPlaceholderValue(process.env.SMTP_FROM) ? `Chocomedley <${user}>` : String(process.env.SMTP_FROM || `Chocomedley <${user}>`).trim();
+  const replyTo = isPlaceholderValue(process.env.SMTP_REPLY_TO) ? user : String(process.env.SMTP_REPLY_TO || user).trim();
+  return { host, port, secure, user, password, from, replyTo };
+}
+
 function smtpConfigured() {
-  return Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASSWORD && process.env.SMTP_FROM);
+  const settings = smtpSettings();
+  return Boolean(settings.host && settings.user && settings.password && settings.from);
 }
 
 function smtpTransporter() {
   if (!smtpConfigured()) return null;
   if (!mailTransporter) {
-    const port = Number(process.env.SMTP_PORT || 587);
+    const settings = smtpSettings();
     mailTransporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST,
-      port,
-      secure: process.env.SMTP_SECURE === 'true' || port === 465,
-      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASSWORD },
+      host: settings.host,
+      port: settings.port,
+      secure: settings.secure,
+      auth: { user: settings.user, pass: settings.password },
       connectionTimeout: 10000,
       greetingTimeout: 10000,
       socketTimeout: 15000
@@ -1017,10 +1040,11 @@ async function notifyOrderStatus(order, previousStatus, nextStatus) {
     }
     if (smtpConfigured()) {
       try {
+        const settings = smtpSettings();
         await smtpTransporter().sendMail({
-          from: process.env.SMTP_FROM,
+          from: settings.from,
           to: event.to,
-          replyTo: process.env.SMTP_REPLY_TO || undefined,
+          replyTo: settings.replyTo || undefined,
           subject: event.subject,
           text: `${event.text}\n\nTrack your order: https://chocomedley.com/track`,
           html: `<p>Hi ${esc(order.customerName)},</p><p>Your Chocomedley order <strong>${esc(order.orderId)}</strong> is now <strong>${esc(nextStatus)}</strong>.</p><p><a href="https://chocomedley.com/track">Track your order</a></p>`
