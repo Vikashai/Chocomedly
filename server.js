@@ -131,7 +131,7 @@ const PRODUCT_IMAGES = [
   '/img/WhatsApp Image 2026-08-11 at 7.49.51 PM.jpeg',
   '/img/WhatsApp Image 2026-08-11 at 7.56.50 PM.jpeg'
 ];
-const ASSET_VERSION = 'launch-20260814-02';
+const ASSET_VERSION = 'launch-20260814-03';
 const CARE_COPY = 'Store your handmade chocolates in a cool, dry place, ideally between 18-22\u00b0C. Keep away from direct sunlight, heat, moisture, and strong odours. During hot weather, refrigerate in an airtight container. Before enjoying, allow the sealed pack to reach room temperature to prevent condensation.';
 const MAX_ORDER_QUANTITY = 20;
 const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
@@ -432,7 +432,7 @@ function seed() {
       freeShippingEnabled: false,
       freeShippingMinimum: 0,
       codEnabled: true,
-      deliveryText: 'Freshly prepared and usually dispatched within 1-2 business days.'
+      deliveryText: 'Freshly prepared and usually delivered in 4-5 days.'
     },
     product: {
       id: 1,
@@ -446,7 +446,7 @@ function seed() {
       galleryPaths: PRODUCT_IMAGES,
       active: true,
       codAvailable: true,
-      deliveryText: 'Usually dispatched within 1-2 business days.',
+      deliveryText: 'Delivered in 4-5 days.',
       details: 'A premium personalized chocolate hamper with photo-printed chocolates, gift-ready packaging, and a refined handmade finish. Built for birthdays, Rakhi, celebrations, return gifts, and thoughtful personal gifting.',
       ingredients: 'Milk chocolate, cocoa solids, sugar, cocoa butter, almonds when selected, and permitted food-grade colors. Contains dairy and may contain traces of nuts.',
       care: CARE_COPY,
@@ -701,6 +701,10 @@ function readDb() {
     data.settings.supportEmail = DEFAULT_ORDER_EMAIL;
     changed = true;
   }
+  if (data.settings?.deliveryText && /1-2\s*business days/i.test(data.settings.deliveryText)) {
+    data.settings.deliveryText = 'Freshly prepared and usually delivered in 4-5 days.';
+    changed = true;
+  }
   if (!data.product.imagePath || data.product.imagePath.includes('2026-08-12')) {
     data.product.imagePath = PRODUCT_IMAGES[0];
     changed = true;
@@ -739,6 +743,10 @@ function readDb() {
   }
   if (data.product.longDescription && !/\b9\b/.test(data.product.longDescription)) {
     data.product.longDescription = String(data.product.longDescription).replace('brings together rich homemade chocolates', 'brings together 9 rich homemade chocolates');
+    changed = true;
+  }
+  if (data.product.deliveryText && /1-2\s*business days/i.test(data.product.deliveryText)) {
+    data.product.deliveryText = 'Delivered in 4-5 days.';
     changed = true;
   }
   ['details', 'ingredients', 'care', 'faq'].forEach(key => {
@@ -1183,7 +1191,7 @@ function page(req, title, body, admin = false) {
   const whatsapp = whatsappUrl(db.settings, 'Hi Chocomedley, I need help with an order.');
   const whatsappLink = whatsapp ? `<a class="support-link" href="${esc(whatsapp)}" target="_blank" rel="noopener">WhatsApp</a>` : '';
   const announcement = db.settings.freeShippingEnabled ? `Complimentary shipping on orders above ${money(db.settings.freeShippingMinimum)}` : 'Carefully packed and delivered across India';
-  const nav = admin ? '' : `<header class="site-header"><div class="announcement-bar"><span>${esc(announcement)}</span><span>Cash on delivery available</span><span>WhatsApp order support</span></div><nav class="nav"><a class="brand" href="/"><img src="${esc(db.settings.logoPath)}" alt="${esc(db.settings.storeName)} logo"><span><strong>${esc(db.settings.storeName)}</strong><small>Artisan chocolates</small></span></a><div class="header-promises"><span><b>Freshly made</b><small>Prepared for your order</small></span><span><b>Personalised</b><small>Your photo, beautifully printed</small></span></div><div class="nav-actions">${whatsappLink}<a class="track-link" href="/track">Track order</a><a class="cart-link" href="/cart"><span>Cart</span><strong>${cartCount}</strong></a></div></nav></header>`;
+  const nav = admin ? '' : `<header class="site-header"><div class="announcement-bar"><span>${esc(announcement)}</span><span>Cash on delivery available</span><span>Delivery in 4-5 days</span></div><nav class="nav"><a class="brand" href="/"><img src="${esc(db.settings.logoPath)}" alt="${esc(db.settings.storeName)} logo"><span><strong>${esc(db.settings.storeName)}</strong><small>Artisan chocolates</small></span></a><div class="header-promises"><span><b>Freshly made</b><small>Prepared for your order</small></span><span><b>Delivered carefully</b><small>Usually in 4-5 days</small></span></div><div class="nav-actions"><a class="track-link" href="/track">Track order</a><a class="cart-link" href="/cart"><span>Cart</span><strong>${cartCount}</strong></a></div></nav></header>`;
   const footer = admin ? '' : `<footer class="site-footer"><div class="footer-inner"><a class="footer-brand" href="/"><img src="${esc(db.settings.logoPath)}" alt=""><span><strong>${esc(db.settings.storeName)}</strong><small>Thoughtful gifts, made personal.</small></span></a><div class="footer-links"><a href="/">Shop hamper</a><a href="/track">Track order</a>${whatsappLink}</div><p>Cash on delivery. Carefully packed in India.</p></div></footer>`;
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)} | ${esc(db.settings.storeName)}</title><meta name="description" content="Order the Rakhi Chocolate Hamper with custom image, extra almonds, and Cash on Delivery."><meta property="og:title" content="${esc(db.product.name)}"><meta property="og:description" content="${esc(db.product.shortDescription)}"><link rel="stylesheet" href="/assets/styles.css?v=${ASSET_VERSION}"><script defer src="/assets/app.js?v=${ASSET_VERSION}"></script></head><body>${nav}${body}${footer}</body></html>`;
 }
@@ -1240,7 +1248,7 @@ app.get('/', (req, res) => {
   const gallery = [db.product.imagePath, ...(db.product.galleryPaths || [])].filter(Boolean).filter((value, index, arr) => arr.indexOf(value) === index);
   const thumbs = gallery.map((src, index) => `<button type="button" data-thumb data-src="${esc(src)}" aria-label="View image ${index + 1}"><img src="${esc(src)}" alt="${esc(db.product.name)} view ${index + 1}"></button>`).join('');
   const activity = storefrontActivity(db);
-  const body = `<main class="storefront">${flashHtml(req)}<section class="product-section"><div class="product-shell"><div class="product-media"><div class="gallery-main"><span class="gallery-badge">Personalised for you</span><button class="gallery-arrow" type="button" data-gallery-prev aria-label="Previous image">‹</button><img data-main-image src="${esc(gallery[0])}" alt="${esc(db.product.name)}"><button class="gallery-arrow next" type="button" data-gallery-next aria-label="Next image">›</button></div><div class="thumbs">${thumbs}</div><div class="media-assurance"><span><b>Photo-ready print</b><small>Clear, colour-accurate finish</small></span><span><b>Gift-safe packaging</b><small>Packed to arrive beautifully</small></span></div></div><form class="product-panel configurator premium-configurator" method="post" action="/cart/add" enctype="multipart/form-data" data-product-form data-base-price="${base}" data-shipping="${shipping(db.settings, base)}">${csrfField(req)}<div class="product-title-block"><span class="panel-kicker">Personalised chocolate hamper</span><h1>${esc(db.product.name)}</h1><div class="pack-line">Pack of 9 handmade chocolates</div><div class="rating-line"><strong>Made fresh for gifting</strong><small>Personalised for every order</small></div><p>${esc(db.product.shortDescription)}</p><div class="activity-row" data-store-activity aria-live="polite"><span class="activity-item"><i></i><b data-recent-orders>${activity.recentOrders}</b> <span data-order-label>${activity.recentOrders === 1 ? 'order' : 'orders'}</span> placed in 48 hours</span><span class="activity-item"><i></i><b data-active-visitors>${activity.activeVisitors}</b> browsing now</span></div><div class="mini-trust"><span>Cash on delivery</span><span>Dispatch in 1-2 days</span><span>Personal photo print</span></div></div>${priceHtml}<div class="config-stack"><section class="config-option premium-option quantity-option"><div class="config-head"><div><span class="config-label">Quantity</span><p>How many hampers would you like?</p></div></div><span class="qty premium-qty"><button type="button" data-qty="-1" aria-label="Decrease quantity">-</button><input name="quantity" value="1" readonly aria-label="Quantity"><button type="button" data-qty="1" aria-label="Increase quantity">+</button></span></section>${activeOptions(db).map(optionField).join('')}</div><div class="checkout-dock"><div class="total-row"><span>Order total</span><strong data-live-total>${money(initialTotal)}</strong></div><div class="actions"><button type="submit" class="btn primary" formaction="/cart/add">Add to cart</button><button type="submit" class="btn dark" formaction="/buy-now">Buy now</button></div><p class="purchase-note">No online payment required. Pay when your order arrives.</p><div class="breakdown" data-breakdown></div></div></form></div></section>${bottomContent(db)}</main>${cartDrawer(req, req.query.cart === 'open')}<div class="mobile-bar"><div><small>Order total</small><strong data-live-total>${money(initialTotal)}</strong></div><button type="button" class="btn primary" data-mobile-add>Add to cart</button></div>`;
+  const body = `<main class="storefront">${flashHtml(req)}<section class="product-section"><div class="product-shell"><div class="product-media"><div class="gallery-main"><span class="gallery-badge">Personalised for you</span><button class="gallery-arrow" type="button" data-gallery-prev aria-label="Previous image">‹</button><img data-main-image src="${esc(gallery[0])}" alt="${esc(db.product.name)}"><button class="gallery-arrow next" type="button" data-gallery-next aria-label="Next image">›</button></div><div class="thumbs">${thumbs}</div><div class="media-assurance"><span><b>Photo-ready print</b><small>Clear, colour-accurate finish</small></span><span><b>Gift-safe packaging</b><small>Packed to arrive beautifully</small></span></div></div><form class="product-panel configurator premium-configurator" method="post" action="/cart/add" enctype="multipart/form-data" data-product-form data-base-price="${base}" data-shipping="${shipping(db.settings, base)}">${csrfField(req)}<div class="product-title-block"><span class="panel-kicker">Personalised chocolate hamper</span><h1>${esc(db.product.name)}</h1><div class="pack-line">Pack of 9 handmade chocolates</div><div class="rating-line"><strong>Made fresh for gifting</strong><small>Personalised for every order</small></div><p>${esc(db.product.shortDescription)}</p><div class="activity-row" data-store-activity aria-live="polite"><span class="activity-item"><i></i><b data-recent-orders>${activity.recentOrders}</b> <span data-order-label>${activity.recentOrders === 1 ? 'order' : 'orders'}</span> placed in 48 hours</span><span class="activity-item"><i></i><b data-active-visitors>${activity.activeVisitors}</b> browsing now</span></div><div class="mini-trust"><span>Cash on delivery</span><span>Delivery in 4-5 days</span><span>Freshly made for you</span></div></div>${priceHtml}<div class="config-stack"><section class="config-option premium-option quantity-option"><div class="config-head"><div><span class="config-label">Quantity</span><p>How many hampers would you like?</p></div></div><span class="qty premium-qty"><button type="button" data-qty="-1" aria-label="Decrease quantity">-</button><input name="quantity" value="1" readonly aria-label="Quantity"><button type="button" data-qty="1" aria-label="Increase quantity">+</button></span></section>${activeOptions(db).map(optionField).join('')}</div><div class="checkout-dock"><div class="total-row"><span>Order total</span><strong data-live-total>${money(initialTotal)}</strong></div><div class="actions"><button type="submit" class="btn primary" formaction="/cart/add">Add to cart</button><button type="submit" class="btn dark" formaction="/buy-now">Buy now</button></div><p class="purchase-note">No online payment required. Pay when your order arrives.</p><div class="breakdown" data-breakdown></div></div></form></div></section>${bottomContent(db)}</main>${cartDrawer(req, req.query.cart === 'open')}<div class="mobile-bar"><div><small>Order total</small><strong data-live-total>${money(initialTotal)}</strong></div><button type="button" class="btn primary" data-mobile-add>Add to cart</button></div>`;
   res.send(page(req, db.product.name, body));
 });
 
