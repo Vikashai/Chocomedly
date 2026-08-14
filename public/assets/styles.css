@@ -195,6 +195,12 @@ label { display: grid; gap: 8px; font-weight: 850; font-size: 14px; line-height:
 .cart-actions .btn { min-height: 42px; padding: 9px 14px; }
 .summary-line { display: grid; grid-template-columns: 1fr auto; gap: 14px; align-items: center; padding: 16px 0; border-bottom: 1px solid var(--line); }
 .summary-note { margin: 8px 0 4px; padding: 10px 12px; border: 1px solid rgba(22,108,74,.16); border-radius: 8px; background: #f5fbf7; color: var(--success); font-size: 11px; font-weight: 900; text-align: center; }
+.legal-content { max-width: 780px; margin: 0 auto; background: var(--paper); border: 1px solid var(--line); border-radius: 16px; }
+.legal-content h1 { font-size: 30px; margin: 6px 0 14px; }
+.legal-content h2 { font-size: 19px; margin: 30px 0 10px; color: var(--plum); }
+.legal-content p, .legal-content li { color: var(--ink); line-height: 1.65; font-size: 15px; }
+.legal-content ul { margin: 6px 0 0; padding-left: 20px; display: grid; gap: 8px; }
+.legal-content .lead { color: var(--muted); margin-bottom: 4px; }
 .muted { color: var(--muted); }
 .lead { color: var(--muted); font-size: 17px; line-height: 1.6; }
 .notice { padding: 12px 14px; border-radius: 16px; background: #fff7e1; border: 1px solid var(--line); margin-bottom: 14px; }

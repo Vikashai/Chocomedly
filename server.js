@@ -1198,7 +1198,7 @@ function page(req, title, body, admin = false) {
   const whatsappLink = whatsapp ? `<a class="support-link" href="${esc(whatsapp)}" target="_blank" rel="noopener">WhatsApp</a>` : '';
   const announcement = db.settings.freeShippingEnabled ? 'Free shipping included on every order' : 'Carefully packed and delivered across India';
   const nav = admin ? '' : `<header class="site-header"><div class="announcement-bar"><span>${esc(announcement)}</span><span>Cash on delivery available</span><span>Delivery in 4-5 days</span></div><nav class="nav"><a class="brand" href="/"><img src="${esc(db.settings.logoPath)}" alt="${esc(db.settings.storeName)} logo"><span><strong>${esc(db.settings.storeName)}</strong><small>Artisan chocolates</small></span></a><div class="header-promises"><span><b>Freshly made</b><small>Prepared for your order</small></span><span><b>Delivered carefully</b><small>Usually in 4-5 days</small></span></div><div class="nav-actions"><a class="track-link" href="/track">Track order</a><a class="cart-link" href="/cart"><span>Cart</span><strong>${cartCount}</strong></a></div></nav></header>`;
-  const footer = admin ? '' : `<footer class="site-footer"><div class="footer-inner"><a class="footer-brand" href="/"><img src="${esc(db.settings.logoPath)}" alt=""><span><strong>${esc(db.settings.storeName)}</strong><small>Thoughtful gifts, made personal.</small></span></a><div class="footer-links"><a href="/">Shop hamper</a><a href="/track">Track order</a>${whatsappLink}</div><p>Cash on delivery. Carefully packed in India.</p></div></footer>`;
+  const footer = admin ? '' : `<footer class="site-footer"><div class="footer-inner"><a class="footer-brand" href="/"><img src="${esc(db.settings.logoPath)}" alt=""><span><strong>${esc(db.settings.storeName)}</strong><small>Thoughtful gifts, made personal.</small></span></a><div class="footer-links"><a href="/">Shop hamper</a><a href="/track">Track order</a><a href="/privacy-policy">Privacy Policy</a>${whatsappLink}</div><p>Cash on delivery. Carefully packed in India.</p><p>Email: chocomedleyteam@gmail.com &middot; Phone: 7337002088</p></div></footer>`;
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)} | ${esc(db.settings.storeName)}</title><meta name="description" content="Order the Rakhi Chocolate Hamper with custom image, extra almonds, and Cash on Delivery."><meta property="og:title" content="${esc(db.product.name)}"><meta property="og:description" content="${esc(db.product.shortDescription)}"><link rel="stylesheet" href="/assets/styles.css?v=${ASSET_VERSION}"><script defer src="/assets/app.js?v=${ASSET_VERSION}"></script></head><body>${nav}${body}${footer}</body></html>`;
 }
 
@@ -1971,11 +1971,66 @@ app.post('/admin/settings', requireAdmin, async (req, res) => {
   res.redirect('/admin/settings');
 });
 
+app.get('/privacy-policy', (req, res) => {
+  const body = `<main class="container legal-page"><section class="panel pad legal-content"><p class="eyebrow">Legal</p><h1>Privacy Policy</h1><p class="lead">Welcome to ChocoMedley (https://www.chocomedley.com/). We respect your privacy and are committed to protecting the personal information you share with us. This Privacy Policy outlines how we collect, use, disclose, and safeguard your data when you visit our website or make a purchase from us.</p>
+
+<h2>1. Information We Collect</h2>
+<p>We collect information directly from you when you browse our site, create an account, place an order, or communicate with us.</p>
+<ul>
+<li><strong>Personal Details:</strong> Name, billing address, shipping address, email address (chocomedleyteam@gmail.com), and contact phone number (7337002088).</li>
+<li><strong>Order &amp; Transaction Data:</strong> Items purchased, payment method (handled securely by our payment gateway providers), and delivery preferences.</li>
+<li><strong>Technical &amp; Usage Data:</strong> IP address, browser type, device information, pages viewed, and cookies (to help improve site performance and store cart items).</li>
+</ul>
+
+<h2>2. How We Use Your Information</h2>
+<p>We use the personal information we collect for the following operational purposes:</p>
+<ul>
+<li><strong>Fulfilling Orders:</strong> To process, package, ship, and deliver your chocolate orders.</li>
+<li><strong>Customer Support:</strong> To communicate order status, send tracking details, and answer queries sent to chocomedleyteam@gmail.com or via phone at 7337002088.</li>
+<li><strong>Site Improvement:</strong> To optimize website navigation, store preferences, and analyze web traffic patterns.</li>
+<li><strong>Marketing Communications:</strong> With your consent, to notify you about seasonal promotions, special offers, or new flavor launches. You can opt out at any time.</li>
+</ul>
+
+<h2>3. Sharing &amp; Disclosure of Information</h2>
+<p>We value your trust and do not sell, rent, or trade your personal information to third parties. We only share data with trusted third-party service providers who help us run our business:</p>
+<ul>
+<li><strong>Logistics &amp; Delivery Partners:</strong> To ensure your orders reach your doorstep.</li>
+<li><strong>Payment Processors:</strong> Secure gateway providers to complete your financial transactions (we do not store full payment card/banking details on our servers).</li>
+<li><strong>Legal Requirements:</strong> If required by law, regulation, or legal process to protect our rights or comply with a judicial proceeding.</li>
+</ul>
+
+<h2>4. Cookies and Tracking Technologies</h2>
+<p>We use cookies and similar tracking technologies to enhance your browsing experience, remember shopping cart items, and understand how visitors interact with our website. You can choose to disable cookies through your web browser settings, though doing so may affect some site functionality.</p>
+
+<h2>5. Data Security</h2>
+<p>We implement appropriate technical and administrative security measures to guard your personal data against unauthorized access, alteration, disclosure, or destruction. However, no internet transmission or electronic storage system is 100% secure.</p>
+
+<h2>6. Your Rights</h2>
+<p>Depending on applicable local privacy laws (including the Information Technology Act and applicable Digital Personal Data Protection laws in India), you have the right to:</p>
+<ul>
+<li>Access, update, or correct your personal information.</li>
+<li>Request the deletion of your personal data held by us, subject to accounting or legal record-keeping obligations.</li>
+<li>Opt out of receiving marketing emails or SMS communications.</li>
+</ul>
+
+<h2>7. Children's Privacy</h2>
+<p>Our website is not intended for use by children under the age of 18 without parental supervision. We do not knowingly collect personal information from minors.</p>
+
+<h2>8. Changes to This Policy</h2>
+<p>We may update this Privacy Policy periodically to reflect changes in our practices or applicable regulations. The "Last Updated" date at the top will indicate when the latest revisions took effect.</p>
+
+<h2>9. Contact Us</h2>
+<p>If you have any questions, feedback, or grievances regarding this Privacy Policy or your personal data, please contact us at:</p>
+<p><strong>REVALLA SATYAVANI</strong><br>Email: chocomedleyteam@gmail.com<br>Phone: 7337002088</p>
+</section></main>`;
+  res.send(page(req, 'Privacy Policy', body));
+});
+
 app.get('/robots.txt', (_, res) => res.type('text/plain').send('User-agent: *\nAllow: /\nSitemap: /sitemap.xml\n'));
 app.get('/sitemap.xml', (req, res) => {
   const origin = `${req.protocol}://${req.get('host')}`;
   const xmlOrigin = origin.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
-  res.type('application/xml').send(`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>${xmlOrigin}/</loc></url><url><loc>${xmlOrigin}/track</loc></url></urlset>`);
+  res.type('application/xml').send(`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>${xmlOrigin}/</loc></url><url><loc>${xmlOrigin}/track</loc></url><url><loc>${xmlOrigin}/privacy-policy</loc></url></urlset>`);
 });
 
 app.use((error, req, res, next) => {
