@@ -77,7 +77,7 @@ function initProduct() {
       breakdown.innerHTML = [
         `<span>Base hamper x ${qty}</span><strong>${money(base * qty)}</strong>`,
         ...options.map(item => `<span>${item.title}</span><strong>${money(item.price)}</strong>`),
-        `<span>Shipping</span><strong>${money(shipping)}</strong>`,
+        `<span>Free shipping included</span><strong>₹0</strong>`,
       ].join('');
     }
     form.querySelectorAll('.choice-card').forEach(card => {
