@@ -395,6 +395,7 @@ th { background: #fff2d8; color: var(--plum); font-size: 13px; }
 .premium-configurator { padding: 28px; border-radius: 8px; background: #fff; box-shadow: 0 24px 58px rgba(37,17,40,.1); }
 .product-title-block { padding: 0 0 22px; }
 .product-title-block h1 { margin: 9px 0 9px; color: var(--plum); font-size: 36px; line-height: 1.08; }
+.pack-line { display: inline-flex; align-items: center; width: fit-content; margin: 0 0 8px; padding: 6px 10px; border: 1px solid rgba(203,155,56,.24); border-radius: 6px; background: #fff9ec; color: var(--gold); font-size: 12px; font-weight: 900; text-transform: uppercase; letter-spacing: 0; }
 .product-title-block p { max-width: 540px; margin-top: 13px; font-size: 15px; }
 .rating-line { font-size: 12px; }
 .activity-row { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 15px; padding: 11px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }

@@ -3,6 +3,10 @@ const money = value => `₹${Number(value || 0).toLocaleString('en-IN')}`;
 function initProduct() {
   const form = document.querySelector('[data-product-form]');
   if (!form) return;
+  const heading = document.querySelector('.product-title-block h1');
+  if (heading && !document.querySelector('.product-title-block .pack-line')) {
+    heading.insertAdjacentHTML('afterend', '<div class="pack-line">Pack of 9 handmade chocolates</div>');
+  }
   const maxQuantity = 20;
   const base = Number(form.dataset.basePrice);
   const shipping = Number(form.dataset.shipping);
@@ -210,7 +214,7 @@ function validateCheckout(form) {
 function initAdminValidation() {
   const cleaners = {
     name: value => value.replace(/[^\p{L}\s]/gu, '').replace(/\s{2,}/g, ' '),
-    text: value => value.replace(/[^\p{L}\p{N}\s.,'&()/-]/gu, '').replace(/\s{2,}/g, ' '),
+    text: value => value.replace(/[^\p{L}\p{N}\s.,'&()/:°–-]/gu, '').replace(/\s{2,}/g, ' '),
     phone: value => value.replace(/[^\d+\s()-]/g, ''),
     person: value => value.replace(/[^\p{L} ]/gu, '').replace(/\s{2,}/g, ' '),
     digits: value => value.replace(/\D/g, ''),
@@ -219,7 +223,7 @@ function initAdminValidation() {
       const [whole = '', ...fractions] = cleaned.split('.');
       return fractions.length ? `${whole}.${fractions.join('').slice(0, 2)}` : whole;
     },
-    address: value => value.replace(/[^\p{L}\p{N}\s.,'&()/-]/gu, '').replace(/\s{2,}/g, ' ')
+    address: value => value.replace(/[^\p{L}\p{N}\s.,'&()/:°–-]/gu, '').replace(/\s{2,}/g, ' ')
   };
   document.querySelectorAll('[data-clean]').forEach(input => {
     const clean = cleaners[input.dataset.clean];
@@ -351,7 +355,8 @@ function refreshAdminField(input) {
 
 function validateAdminForm(form) {
   let firstInvalid = null;
-  form.querySelectorAll('[data-admin-rule]').forEach(input => {
+  form.querySelectorAll('[data-admin-rule]:not(:disabled)').forEach(input => {
+    if (input.closest('[hidden]')) return;
     if (!validateAdminField(input) && !firstInvalid) firstInvalid = input;
   });
   if (firstInvalid) firstInvalid.focus();

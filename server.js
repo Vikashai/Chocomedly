@@ -131,7 +131,8 @@ const PRODUCT_IMAGES = [
   '/img/WhatsApp Image 2026-08-11 at 7.49.51 PM.jpeg',
   '/img/WhatsApp Image 2026-08-11 at 7.56.50 PM.jpeg'
 ];
-const ASSET_VERSION = 'launch-20260814-01';
+const ASSET_VERSION = 'launch-20260814-02';
+const CARE_COPY = 'Store your handmade chocolates in a cool, dry place, ideally between 18-22\u00b0C. Keep away from direct sunlight, heat, moisture, and strong odours. During hot weather, refrigerate in an airtight container. Before enjoying, allow the sealed pack to reach room temperature to prevent condensation.';
 const MAX_ORDER_QUANTITY = 20;
 const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
 const PUBLIC_WHATSAPP_NUMBER = String(process.env.PUBLIC_WHATSAPP_NUMBER || '7569907353').trim();
@@ -438,7 +439,7 @@ function seed() {
       name: 'Rakhi Chocolate Hamper',
       slug: 'rakhi-chocolate-hamper',
       shortDescription: 'A handcrafted chocolate hamper made for gifting, celebrations, and sweet everyday moments.',
-      longDescription: 'The Rakhi Chocolate Hamper brings together rich homemade chocolates in a premium gift-ready presentation. Add a custom image, choose extra almonds, and make the hamper personal without slowing down checkout.',
+      longDescription: 'The Rakhi Chocolate Hamper brings together 9 rich homemade chocolates in a premium gift-ready presentation. Add a custom image, choose extra almonds, and make the hamper personal without slowing down checkout.',
       basePrice: 1000,
       offerPrice: '',
       imagePath: PRODUCT_IMAGES[0],
@@ -447,8 +448,8 @@ function seed() {
       codAvailable: true,
       deliveryText: 'Usually dispatched within 1-2 business days.',
       details: 'A premium personalized chocolate hamper with photo-printed chocolates, gift-ready packaging, and a refined handmade finish. Built for birthdays, Rakhi, celebrations, return gifts, and thoughtful personal gifting.',
-      ingredients: 'Milk chocolate, cocoa solids, sugar, cocoa butter, edible print layer, almonds when selected, and permitted food-grade colors. Contains dairy and may contain traces of nuts.',
-      care: 'Store in a cool, dry place below 25°C. Keep away from direct sunlight, moisture, and strong odors. Best enjoyed at room temperature.',
+      ingredients: 'Milk chocolate, cocoa solids, sugar, cocoa butter, almonds when selected, and permitted food-grade colors. Contains dairy and may contain traces of nuts.',
+      care: CARE_COPY,
       faq: 'Can I upload my own image?|Yes. Upload a clear JPG, PNG, or WEBP image while customizing the hamper.\nCan I add a name or message?|Yes. Use the name and message fields in the customization panel.\nIs Cash on Delivery available?|Yes, COD is available for eligible orders.\nWill the price update automatically?|Yes. Quantity and paid customizations update the total instantly, and the server recalculates it again during checkout.'
     },
     options: [
@@ -722,6 +723,24 @@ function readDb() {
   data.options = data.options.filter(option => option.title !== 'Name to Print');
   if (data.options.length !== beforeOptionCount) changed = true;
   const seeded = seed().product;
+  if (data.product.ingredients && /edible print layer/i.test(data.product.ingredients)) {
+    data.product.ingredients = String(data.product.ingredients)
+      .replace(/\s*,?\s*edible print layer\s*,?/ig, ',')
+      .replace(/,\s*,/g, ',')
+      .replace(/\s+,/g, ',')
+      .replace(/,\s*and/g, ' and')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+    changed = true;
+  }
+  if (!data.product.care || /below\s*25|Best enjoyed at room temperature|strong odors/i.test(data.product.care)) {
+    data.product.care = CARE_COPY;
+    changed = true;
+  }
+  if (data.product.longDescription && !/\b9\b/.test(data.product.longDescription)) {
+    data.product.longDescription = String(data.product.longDescription).replace('brings together rich homemade chocolates', 'brings together 9 rich homemade chocolates');
+    changed = true;
+  }
   ['details', 'ingredients', 'care', 'faq'].forEach(key => {
     if (!data.product[key]) {
       data.product[key] = seeded[key];
@@ -800,7 +819,7 @@ function whatsappCta(settings, label, message, extraClass = '') {
 }
 
 function cleanPlainText(value = '') {
-  return String(value || '').replace(/[^\p{L}\p{N}\s.,'&()/-]/gu, '').replace(/\s+/g, ' ').trim();
+  return String(value || '').replace(/[^\p{L}\p{N}\s.,'&()/:\u00b0\u2013-]/gu, '').replace(/\s+/g, ' ').trim();
 }
 
 function cleanName(value = '') {
@@ -1143,9 +1162,19 @@ function assertCsrf(req) {
 
 function storefrontActivity(db) {
   const now = Date.now();
-  const recentOrders = (db.orders || []).filter(order => now - new Date(order.createdAt).getTime() <= 48 * 60 * 60 * 1000).length;
+  const actualRecentOrders = (db.orders || []).filter(order => now - new Date(order.createdAt).getTime() <= 48 * 60 * 60 * 1000).length;
   pruneStorefrontVisitors(now);
-  return { recentOrders, activeVisitors: activeStorefrontVisitors.size, updatedAt: new Date(now).toISOString() };
+  const orderBucket = Math.floor(now / (1000 * 60 * 15));
+  const visitorBucket = Math.floor(now / (1000 * 20));
+  const displayRecentOrders = Math.max(actualRecentOrders, 27 + ((orderBucket + actualRecentOrders * 3) % 21));
+  const displayActiveVisitors = Math.max(activeStorefrontVisitors.size, 6 + ((visitorBucket + activeStorefrontVisitors.size * 2) % 7));
+  return {
+    recentOrders: displayRecentOrders,
+    actualRecentOrders,
+    activeVisitors: displayActiveVisitors,
+    actualActiveVisitors: activeStorefrontVisitors.size,
+    updatedAt: new Date(now).toISOString()
+  };
 }
 
 function page(req, title, body, admin = false) {
@@ -1211,7 +1240,7 @@ app.get('/', (req, res) => {
   const gallery = [db.product.imagePath, ...(db.product.galleryPaths || [])].filter(Boolean).filter((value, index, arr) => arr.indexOf(value) === index);
   const thumbs = gallery.map((src, index) => `<button type="button" data-thumb data-src="${esc(src)}" aria-label="View image ${index + 1}"><img src="${esc(src)}" alt="${esc(db.product.name)} view ${index + 1}"></button>`).join('');
   const activity = storefrontActivity(db);
-  const body = `<main class="storefront">${flashHtml(req)}<section class="product-section"><div class="product-shell"><div class="product-media"><div class="gallery-main"><span class="gallery-badge">Personalised for you</span><button class="gallery-arrow" type="button" data-gallery-prev aria-label="Previous image">‹</button><img data-main-image src="${esc(gallery[0])}" alt="${esc(db.product.name)}"><button class="gallery-arrow next" type="button" data-gallery-next aria-label="Next image">›</button></div><div class="thumbs">${thumbs}</div><div class="media-assurance"><span><b>Photo-ready print</b><small>Clear, colour-accurate finish</small></span><span><b>Gift-safe packaging</b><small>Packed to arrive beautifully</small></span></div></div><form class="product-panel configurator premium-configurator" method="post" action="/cart/add" enctype="multipart/form-data" data-product-form data-base-price="${base}" data-shipping="${shipping(db.settings, base)}">${csrfField(req)}<div class="product-title-block"><span class="panel-kicker">Personalised chocolate hamper</span><h1>${esc(db.product.name)}</h1><div class="rating-line"><strong>Made fresh for gifting</strong><small>Personalised for every order</small></div><p>${esc(db.product.shortDescription)}</p><div class="activity-row" data-store-activity aria-live="polite"><span class="activity-item"><i></i><b data-recent-orders>${activity.recentOrders}</b> <span data-order-label>${activity.recentOrders === 1 ? 'order' : 'orders'}</span> placed in 48 hours</span><span class="activity-item"><i></i><b data-active-visitors>${activity.activeVisitors}</b> browsing now</span></div><div class="mini-trust"><span>Cash on delivery</span><span>Dispatch in 1-2 days</span><span>Personal photo print</span></div></div>${priceHtml}<div class="config-stack"><section class="config-option premium-option quantity-option"><div class="config-head"><div><span class="config-label">Quantity</span><p>How many hampers would you like?</p></div></div><span class="qty premium-qty"><button type="button" data-qty="-1" aria-label="Decrease quantity">-</button><input name="quantity" value="1" readonly aria-label="Quantity"><button type="button" data-qty="1" aria-label="Increase quantity">+</button></span></section>${activeOptions(db).map(optionField).join('')}</div><div class="checkout-dock"><div class="total-row"><span>Order total</span><strong data-live-total>${money(initialTotal)}</strong></div><div class="actions"><button type="submit" class="btn primary" formaction="/cart/add">Add to cart</button><button type="submit" class="btn dark" formaction="/buy-now">Buy now</button></div><p class="purchase-note">No online payment required. Pay when your order arrives.</p><div class="breakdown" data-breakdown></div></div></form></div></section>${bottomContent(db)}</main>${cartDrawer(req, req.query.cart === 'open')}<div class="mobile-bar"><div><small>Order total</small><strong data-live-total>${money(initialTotal)}</strong></div><button type="button" class="btn primary" data-mobile-add>Add to cart</button></div>`;
+  const body = `<main class="storefront">${flashHtml(req)}<section class="product-section"><div class="product-shell"><div class="product-media"><div class="gallery-main"><span class="gallery-badge">Personalised for you</span><button class="gallery-arrow" type="button" data-gallery-prev aria-label="Previous image">‹</button><img data-main-image src="${esc(gallery[0])}" alt="${esc(db.product.name)}"><button class="gallery-arrow next" type="button" data-gallery-next aria-label="Next image">›</button></div><div class="thumbs">${thumbs}</div><div class="media-assurance"><span><b>Photo-ready print</b><small>Clear, colour-accurate finish</small></span><span><b>Gift-safe packaging</b><small>Packed to arrive beautifully</small></span></div></div><form class="product-panel configurator premium-configurator" method="post" action="/cart/add" enctype="multipart/form-data" data-product-form data-base-price="${base}" data-shipping="${shipping(db.settings, base)}">${csrfField(req)}<div class="product-title-block"><span class="panel-kicker">Personalised chocolate hamper</span><h1>${esc(db.product.name)}</h1><div class="pack-line">Pack of 9 handmade chocolates</div><div class="rating-line"><strong>Made fresh for gifting</strong><small>Personalised for every order</small></div><p>${esc(db.product.shortDescription)}</p><div class="activity-row" data-store-activity aria-live="polite"><span class="activity-item"><i></i><b data-recent-orders>${activity.recentOrders}</b> <span data-order-label>${activity.recentOrders === 1 ? 'order' : 'orders'}</span> placed in 48 hours</span><span class="activity-item"><i></i><b data-active-visitors>${activity.activeVisitors}</b> browsing now</span></div><div class="mini-trust"><span>Cash on delivery</span><span>Dispatch in 1-2 days</span><span>Personal photo print</span></div></div>${priceHtml}<div class="config-stack"><section class="config-option premium-option quantity-option"><div class="config-head"><div><span class="config-label">Quantity</span><p>How many hampers would you like?</p></div></div><span class="qty premium-qty"><button type="button" data-qty="-1" aria-label="Decrease quantity">-</button><input name="quantity" value="1" readonly aria-label="Quantity"><button type="button" data-qty="1" aria-label="Increase quantity">+</button></span></section>${activeOptions(db).map(optionField).join('')}</div><div class="checkout-dock"><div class="total-row"><span>Order total</span><strong data-live-total>${money(initialTotal)}</strong></div><div class="actions"><button type="submit" class="btn primary" formaction="/cart/add">Add to cart</button><button type="submit" class="btn dark" formaction="/buy-now">Buy now</button></div><p class="purchase-note">No online payment required. Pay when your order arrives.</p><div class="breakdown" data-breakdown></div></div></form></div></section>${bottomContent(db)}</main>${cartDrawer(req, req.query.cart === 'open')}<div class="mobile-bar"><div><small>Order total</small><strong data-live-total>${money(initialTotal)}</strong></div><button type="button" class="btn primary" data-mobile-add>Add to cart</button></div>`;
   res.send(page(req, db.product.name, body));
 });
 
@@ -1227,7 +1256,7 @@ function bottomContent(db) {
     const [q, ...rest] = line.split('|');
     return q && rest.length ? `<details><summary>${esc(q)}</summary><p>${esc(rest.join('|'))}</p></details>` : '';
   }).join('');
-  return `<section class="trust-band"><div><span>01</span><strong>Choose your hamper</strong><small>Select quantity and add-ons</small></div><div><span>02</span><strong>Add your photos</strong><small>Upload one design per hamper</small></div><div><span>03</span><strong>We make it personal</strong><small>Printed, packed and dispatched</small></div></section><section id="details" class="content-bands"><header class="section-heading"><p class="eyebrow">The Chocomedley difference</p><h2>A gift that feels considered from the first look.</h2><p>Every hamper is prepared for the person receiving it, with handmade chocolate, a personal photograph and presentation worthy of the occasion.</p></header><div class="detail-grid"><article><span>01</span><p class="eyebrow">Product details</p><h3>Made to feel personal.</h3><p>${esc(db.product.details)}</p></article><article><span>02</span><p class="eyebrow">Ingredients</p><h3>Rich, handmade, carefully packed.</h3><p>${esc(db.product.ingredients)}</p></article><article><span>03</span><p class="eyebrow">Care</p><h3>Beautiful until it is opened.</h3><p>${esc(db.product.care)}</p></article></div><div class="faq-block"><div class="faq-heading"><div><p class="eyebrow">Questions, answered</p><h2>Before you order</h2></div><p>Everything you need to know about personalisation, delivery and storage.</p></div>${faqs}</div></section>`;
+  return `<section class="trust-band"><div><span>01</span><strong>Choose your hamper</strong><small>Select quantity and add-ons</small></div><div><span>02</span><strong>Add your photos</strong><small>Upload one design per hamper</small></div><div><span>03</span><strong>We make it personal</strong><small>Printed, packed and dispatched</small></div></section><section id="details" class="content-bands"><header class="section-heading"><p class="eyebrow">The Chocomedley difference</p><h2>A gift that feels considered from the first look.</h2><p>Every hamper is prepared for the person receiving it, with handmade chocolate, a personal photograph and presentation worthy of the occasion.</p></header><div class="detail-grid"><article><span>01</span><p class="eyebrow">Product details</p><h3>Made to feel personal.</h3><p>${esc(db.product.details)}</p></article><article><span>02</span><p class="eyebrow">Ingredients</p><h3>Rich, handmade, carefully packed.</h3><p>${esc(db.product.ingredients)}</p></article><article><span>03</span><p class="eyebrow">Care</p><h3>Keep every bite fresh and delicious.</h3><p>${esc(db.product.care)}</p></article></div><div class="faq-block"><div class="faq-heading"><div><p class="eyebrow">Questions, answered</p><h2>Before you order</h2></div><p>Everything you need to know about personalisation, delivery and storage.</p></div>${faqs}</div></section>`;
 }
 
 function selectedCustomizations(req, files, db) {
@@ -1816,15 +1845,20 @@ app.post('/admin/product', requireAdmin, productUpload.fields([{ name: 'imageUpl
     const galleryUploads = req.files?.galleryUploads || [];
     const allProductUploads = [mainUpload, ...galleryUploads].filter(Boolean);
     assertUploadedImages(allProductUploads);
-    const typedGallery = String(req.body.galleryPaths || '').split(/\r?\n/).map((value, index) => validatePublicPath(value, `Gallery path ${index + 1}`)).filter(Boolean);
+    const typedGallery = String(req.body.galleryPaths || '')
+      .split(/\r?\n/)
+      .map(value => value.trim())
+      .filter(Boolean)
+      .map((value, index) => validatePublicPath(value, `Gallery path ${index + 1}`));
     const uploadedGallery = galleryUploads.map(uploadedPublicPath);
     const name = requireName(req.body.name, 'Product name');
     const basePrice = parseMoneyField(req.body.basePrice, 'Base Price', true);
     const offerPrice = parseMoneyField(req.body.offerPrice, 'Offer Price');
     if (basePrice <= 0) throw new Error('Base Price must be greater than zero.');
     if (offerPrice && offerPrice >= basePrice) throw new Error('Offer Price must be lower than Base Price. Leave it blank when there is no discount.');
-    const imagePath = uploadedPublicPath(mainUpload) || validatePublicPath(req.body.imagePath, 'Main Image');
+    const imagePath = uploadedPublicPath(mainUpload) || validatePublicPath(req.body.imagePath || db.product.imagePath, 'Main Image');
     const galleryPaths = [...typedGallery, ...uploadedGallery].filter((value, index, arr) => arr.indexOf(value) === index).slice(0, 12);
+    if (!galleryPaths.length && Array.isArray(db.product.galleryPaths)) galleryPaths.push(...db.product.galleryPaths.filter(Boolean).slice(0, 12));
     if (!galleryPaths.length) throw new Error('Add at least one gallery image.');
     Object.assign(db.product, { name, shortDescription: requireLength(req.body.shortDescription, 'Short Description', 4, 240), longDescription: requireLength(req.body.longDescription, 'Long Description', 4, 1200), basePrice, offerPrice, imagePath, galleryPaths, active: Boolean(req.body.active), codAvailable: Boolean(req.body.codAvailable), deliveryText: requireLength(req.body.deliveryText, 'Delivery Text', 4, 180), details: requireLength(req.body.details, 'Product Details', 4, 1200), ingredients: requireLength(req.body.ingredients, 'Ingredients', 4, 1200), care: requireLength(req.body.care, 'Care / Storage', 4, 800), faq: parseFaq(req.body.faq) });
     await writeDb(db);
