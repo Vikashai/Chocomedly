@@ -233,6 +233,9 @@ function initAdminValidation() {
   });
   document.querySelectorAll('[data-admin-rule]').forEach(input => {
     input.addEventListener('input', () => refreshAdminField(input));
+    input.addEventListener('input', () => {
+      if (input.name === 'password') input.form?.querySelectorAll('[data-admin-rule="passwordMatch"]').forEach(refreshAdminField);
+    });
     input.addEventListener('change', () => refreshAdminField(input));
     input.addEventListener('blur', () => validateAdminField(input));
   });
@@ -314,6 +317,8 @@ const adminRules = {
   characterLimit: input => !input.value.trim() || (/^\d+$/.test(input.value.trim()) && Number(input.value) > 0 && Number(input.value) <= 1000) ? '' : 'Use a whole number from 1 to 1000.',
   phone: input => { const count = input.value.replace(/\D/g, '').length; return count >= 10 && count <= 15 ? '' : 'Enter 10 to 15 digits.'; },
   email: input => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input.value.trim()) ? '' : 'Enter a valid email address.',
+  password: input => input.value.length >= 12 && /[A-Za-z]/.test(input.value) && /\d/.test(input.value) ? '' : 'Use 12+ characters with letters and a number.',
+  passwordMatch: input => input.value && input.value === input.form?.querySelector('[name="password"]')?.value ? '' : 'Passwords must match.',
   imagePath: input => /^\/(img|catalog)\/[\w .()\-/%]+$/i.test(input.value.trim()) ? '' : 'Use an /img/ or /catalog/ path.',
   imagePaths: input => input.value.trim().split(/\r?\n/).filter(Boolean).every(value => /^\/(img|catalog)\/[\w .()\-/%]+$/i.test(value.trim())) ? '' : 'Every line must use an /img/ or /catalog/ path.',
   faq: input => input.value.trim().split(/\r?\n/).filter(Boolean).length > 0 && input.value.trim().split(/\r?\n/).filter(Boolean).every(line => { const index = line.indexOf('|'); return index >= 3 && index < line.length - 1; }) ? '' : 'Use Question|Answer on every line.',

@@ -131,11 +131,12 @@ const PRODUCT_IMAGES = [
   '/img/WhatsApp Image 2026-08-11 at 7.49.51 PM.jpeg',
   '/img/WhatsApp Image 2026-08-11 at 7.56.50 PM.jpeg'
 ];
-const ASSET_VERSION = 'launch-20260813-23';
+const ASSET_VERSION = 'launch-20260814-01';
 const MAX_ORDER_QUANTITY = 20;
 const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
 const PUBLIC_WHATSAPP_NUMBER = String(process.env.PUBLIC_WHATSAPP_NUMBER || '7569907353').trim();
 const DEFAULT_ORDER_EMAIL = String(process.env.ORDER_EMAIL_ACCOUNT || 'chocomedleyteam@gmail.com').trim();
+const PUBLIC_ORIGIN = String(process.env.PUBLIC_ORIGIN || '').trim().replace(/\/+$/, '');
 const DEMO_ADMIN_EMAIL = process.env.DEMO_ADMIN_EMAIL || 'admin@chocomedley.in';
 const IS_RENDER = Boolean(process.env.RENDER || process.env.RENDER_EXTERNAL_URL || process.env.RENDER_SERVICE_ID);
 const DEMO_ADMIN_ENABLED = process.env.DEMO_ADMIN_ENABLED === 'true' || IS_RENDER || process.env.NODE_ENV !== 'production';
@@ -418,6 +419,7 @@ const productUpload = multer({
 function seed() {
   return {
     admins: demoAdmins(),
+    adminResetTokens: [],
     settings: {
       storeName: 'Chocomedley',
       logoPath: '/img/WhatsApp Image 2026-08-12 at 1.24.57 PM.jpeg',
@@ -630,6 +632,19 @@ function readDb() {
     void writeDb(data);
   }
   let changed = false;
+  if (!Array.isArray(data.admins)) {
+    data.admins = [];
+    changed = true;
+  }
+  if (!Array.isArray(data.adminResetTokens)) {
+    data.adminResetTokens = [];
+    changed = true;
+  }
+  const activeResetTokens = data.adminResetTokens.filter(token => Number(token.expiresAt) > Date.now());
+  if (activeResetTokens.length !== data.adminResetTokens.length) {
+    data.adminResetTokens = activeResetTokens;
+    changed = true;
+  }
   if (data.product?.name === 'Rocky Chocolate Hamper') {
     data.product.name = 'Rakhi Chocolate Hamper';
     data.product.slug = 'rakhi-chocolate-hamper';
@@ -992,6 +1007,31 @@ function smtpSettings() {
 function smtpConfigured() {
   const settings = smtpSettings();
   return Boolean(settings.host && settings.user && settings.password && settings.from);
+}
+
+function passwordMeetsPolicy(password) {
+  return password.length >= 12 && /[A-Za-z]/.test(password) && /\d/.test(password);
+}
+
+function resetTokenHash(token) {
+  return crypto.createHash('sha256').update(String(token)).digest('hex');
+}
+
+function requestOrigin(req) {
+  return PUBLIC_ORIGIN || `${req.protocol}://${req.get('host')}`;
+}
+
+async function sendTransactionalEmail({ to, subject, text, html }) {
+  if (!smtpConfigured()) throw new Error('SMTP is not configured. Add the Gmail App Password in Hostinger.');
+  const settings = smtpSettings();
+  return smtpTransporter().sendMail({
+    from: settings.from,
+    to,
+    replyTo: settings.replyTo || undefined,
+    subject,
+    text,
+    html
+  });
 }
 
 function smtpTransporter() {
@@ -1413,7 +1453,8 @@ const ADMIN_LINKS = [
   { href: '/admin/orders', label: 'Orders', match: pathValue => pathValue.startsWith('/admin/orders') },
   { href: '/admin/product', label: 'Product', match: pathValue => pathValue.startsWith('/admin/product') },
   { href: '/admin/customizations', label: 'Customizations', match: pathValue => pathValue.startsWith('/admin/customizations') },
-  { href: '/admin/settings', label: 'Settings', match: pathValue => pathValue.startsWith('/admin/settings') }
+  { href: '/admin/settings', label: 'Settings', match: pathValue => pathValue.startsWith('/admin/settings') },
+  { href: '/admin/team', label: 'Team', match: pathValue => pathValue.startsWith('/admin/team') }
 ];
 
 function adminHeading(kicker, title, description, action = '') {
@@ -1461,7 +1502,7 @@ app.post('/setup-admin', async (req, res) => {
   } catch (_) {
     name = '';
   }
-  if (!name || !email || password.length < 12 || !/[A-Za-z]/.test(password) || !/\d/.test(password)) {
+  if (!name || !email || !passwordMeetsPolicy(password)) {
     flash(req, 'error', 'Use a valid name, email, and password with at least 12 characters including letters and a number.');
     return res.redirect('/setup-admin');
   }
@@ -1477,7 +1518,7 @@ app.get('/admin/login', (req, res) => {
   }
   const db = readDb();
   res.setHeader('Cache-Control', 'no-store');
-  res.send(page(req, 'Admin Login', `<main class="auth-shell"><form class="panel auth-card" method="post" action="/admin/login">${csrfField(req)}<img class="auth-logo" src="${esc(db.settings.logoPath)}" alt="Logo"><h1>Admin Login</h1>${flashHtml(req)}<label>Email<input type="email" name="email" maxlength="254" autocomplete="username" required></label><label>Password<input type="password" name="password" autocomplete="current-password" required></label><button class="btn primary">Login</button></form></main>`, true));
+  res.send(page(req, 'Admin Login', `<main class="auth-shell"><form class="panel auth-card" method="post" action="/admin/login">${csrfField(req)}<img class="auth-logo" src="${esc(db.settings.logoPath)}" alt="Logo"><h1>Admin Login</h1>${flashHtml(req)}<label>Email<input type="email" name="email" maxlength="254" autocomplete="username" required></label><label>Password<input type="password" name="password" autocomplete="current-password" required></label><button class="btn primary">Login</button><a class="auth-link" href="/admin/forgot-password">Forgot password?</a></form></main>`, true));
 });
 
 app.post('/admin/login', routeRateLimit('admin-login', 10, 15 * 60 * 1000), async (req, res) => {
@@ -1497,7 +1538,133 @@ app.post('/admin/login', routeRateLimit('admin-login', 10, 15 * 60 * 1000), asyn
   res.redirect('/admin/login');
 });
 
+app.get('/admin/forgot-password', (req, res) => {
+  const db = readDb();
+  res.setHeader('Cache-Control', 'no-store');
+  res.send(page(req, 'Reset Admin Password', `<main class="auth-shell"><form class="panel auth-card" method="post" action="/admin/forgot-password">${csrfField(req)}<img class="auth-logo" src="${esc(db.settings.logoPath)}" alt="Logo"><p class="auth-kicker">Account recovery</p><h1>Forgot password?</h1>${flashHtml(req)}<p class="auth-copy">Enter your admin email and we will send a secure reset link if the account exists.</p><label>Email<input type="email" name="email" maxlength="254" autocomplete="email" required></label><button class="btn primary">Send reset link</button><a class="auth-link" href="/admin/login">Back to login</a></form></main>`, true));
+});
+
+app.post('/admin/forgot-password', routeRateLimit('admin-forgot-password', 5, 15 * 60 * 1000), async (req, res) => {
+  let email = '';
+  try {
+    email = optionalEmail(req.body.email, 'Admin email');
+    if (!email) throw new Error('Enter your admin email.');
+  } catch (error) {
+    flash(req, 'error', error.message);
+    return res.redirect('/admin/forgot-password');
+  }
+  const db = readDb();
+  const admin = db.admins.find(record => record.email === email);
+  if (admin) {
+    const token = crypto.randomBytes(32).toString('hex');
+    const resetUrl = `${requestOrigin(req)}/admin/reset-password?token=${encodeURIComponent(token)}`;
+    db.adminResetTokens = db.adminResetTokens.filter(record => record.adminId !== admin.id);
+    db.adminResetTokens.push({ adminId: admin.id, tokenHash: resetTokenHash(token), expiresAt: Date.now() + 30 * 60 * 1000, createdAt: new Date().toISOString() });
+    try {
+      await writeDb(db);
+      await sendTransactionalEmail({
+        to: admin.email,
+        subject: 'Reset your Chocomedley admin password',
+        text: `Hi ${admin.name},\n\nUse this link to reset your Chocomedley admin password. It expires in 30 minutes and can be used once:\n${resetUrl}\n\nIf you did not request this, you can ignore this email.`,
+        html: `<p>Hi ${esc(admin.name)},</p><p>Use the secure link below to reset your Chocomedley admin password. It expires in 30 minutes and can be used once.</p><p><a href="${esc(resetUrl)}">Reset admin password</a></p><p>If you did not request this, you can ignore this email.</p>`
+      });
+    } catch (error) {
+      db.adminResetTokens = db.adminResetTokens.filter(record => record.adminId !== admin.id);
+      await writeDb(db).catch(() => {});
+      console.error('[email] Admin password reset failed:', error.code || error.message);
+      flash(req, 'error', 'The reset email could not be sent. Check the Gmail SMTP settings and try again.');
+      return res.redirect('/admin/forgot-password');
+    }
+  }
+  flash(req, 'success', 'If that admin email exists, a reset link has been sent. Check your inbox and spam folder.');
+  res.redirect('/admin/forgot-password');
+});
+
+app.get('/admin/reset-password', (req, res) => {
+  const db = readDb();
+  const token = String(req.query.token || '').trim();
+  const reset = db.adminResetTokens.find(record => record.tokenHash === resetTokenHash(token) && Number(record.expiresAt) > Date.now());
+  res.setHeader('Cache-Control', 'no-store');
+  if (!reset) return res.send(page(req, 'Reset Link Expired', `<main class="auth-shell"><section class="panel auth-card"><img class="auth-logo" src="${esc(db.settings.logoPath)}" alt="Logo"><p class="auth-kicker">Account recovery</p><h1>Reset link expired</h1><p class="auth-copy">This link is invalid or has already been used. Request a fresh link to continue.</p><a class="btn primary" href="/admin/forgot-password">Request new link</a></section></main>`, true));
+  res.send(page(req, 'Set New Admin Password', `<main class="auth-shell"><form class="panel auth-card" method="post" action="/admin/reset-password">${csrfField(req)}<input type="hidden" name="token" value="${esc(token)}"><img class="auth-logo" src="${esc(db.settings.logoPath)}" alt="Logo"><p class="auth-kicker">Account recovery</p><h1>Set a new password</h1>${flashHtml(req)}<label>New password<input type="password" name="password" minlength="12" autocomplete="new-password" required><small class="muted">At least 12 characters with letters and a number.</small></label><label>Confirm password<input type="password" name="confirmPassword" minlength="12" autocomplete="new-password" required></label><button class="btn primary">Update password</button></form></main>`, true));
+});
+
+app.post('/admin/reset-password', routeRateLimit('admin-reset-password', 8, 15 * 60 * 1000), async (req, res) => {
+  const token = String(req.body.token || '').trim();
+  const db = readDb();
+  const reset = db.adminResetTokens.find(record => record.tokenHash === resetTokenHash(token) && Number(record.expiresAt) > Date.now());
+  if (!reset) {
+    flash(req, 'error', 'This reset link is invalid or has expired.');
+    return res.redirect('/admin/forgot-password');
+  }
+  const password = String(req.body.password || '');
+  const confirmPassword = String(req.body.confirmPassword || '');
+  if (!passwordMeetsPolicy(password) || password !== confirmPassword) {
+    flash(req, 'error', 'Passwords must match and include at least 12 characters, letters, and a number.');
+    return res.redirect(`/admin/reset-password?token=${encodeURIComponent(token)}`);
+  }
+  const admin = db.admins.find(record => record.id === reset.adminId);
+  if (!admin) {
+    flash(req, 'error', 'Admin account not found.');
+    return res.redirect('/admin/forgot-password');
+  }
+  admin.passwordHash = await bcrypt.hash(password, 12);
+  admin.updatedAt = new Date().toISOString();
+  db.adminResetTokens = db.adminResetTokens.filter(record => record.adminId !== admin.id);
+  await writeDb(db);
+  flash(req, 'success', 'Password updated. You can now sign in.');
+  res.redirect('/admin/login');
+});
+
+app.post('/admin/email/test', requireAdmin, routeRateLimit('admin-email-test', 3, 15 * 60 * 1000), async (req, res) => {
+  const db = readDb();
+  try {
+    assertCsrf(req);
+    const configured = smtpSettings();
+    const recipient = optionalEmail(req.body.testEmail || db.settings.supportEmail || configured.user, 'Test email recipient');
+    if (!recipient) throw new Error('Enter a test email recipient.');
+    await sendTransactionalEmail({
+      to: recipient,
+      subject: 'Chocomedley email delivery test',
+      text: `This is a test email from Chocomedley. SMTP delivery is working for ${configured.user}.`,
+      html: `<p>This is a test email from <strong>Chocomedley</strong>.</p><p>SMTP delivery is working for <strong>${esc(configured.user)}</strong>.</p>`
+    });
+    flash(req, 'success', `Test email sent to ${recipient}. Check the inbox and spam folder.`);
+  } catch (error) {
+    console.error('[email] Test email failed:', error.code || error.message);
+    flash(req, 'error', error.message || 'The test email could not be sent.');
+  }
+  res.redirect('/admin/settings#email-integration');
+});
+
 app.get('/admin/logout', (req, res) => req.session.destroy(() => res.redirect('/admin/login')));
+
+app.get('/admin/team', requireAdmin, (req, res) => {
+  const db = readDb();
+  const cards = db.admins.map(admin => `<article class="admin-team-card"><div><span class="admin-option-type">Admin account</span><h2>${esc(admin.name || 'Store Admin')}</h2><p>${esc(admin.email)}</p><small>Added ${esc(String(admin.createdAt || '').slice(0, 10) || 'recently')}</small></div><span class="admin-status is-live">${admin.id === req.session.adminId ? 'You' : 'Active'}</span></article>`).join('');
+  const fields = `<div class="admin-fields two"><label>Name<input name="name" maxlength="80" data-clean="name" data-admin-rule="name" autocomplete="name" required><small class="field-error" data-error-for="name"></small></label><label>Email<input type="email" name="email" maxlength="254" data-admin-rule="email" autocomplete="email" required><small class="field-error" data-error-for="email"></small></label></div><div class="admin-fields two"><label>Password<input type="password" name="password" minlength="12" data-admin-rule="password" autocomplete="new-password" required><small class="field-error" data-error-for="password"></small></label><label>Confirm password<input type="password" name="confirmPassword" minlength="12" data-admin-rule="passwordMatch" autocomplete="new-password" required><small class="field-error" data-error-for="confirmPassword"></small></label></div>`;
+  const form = `<form class="admin-form" method="post" action="/admin/team" data-admin-form>${csrfField(req)}${adminFormSection('01', 'Add an admin', 'Create a separate secure login for a trusted team member.', fields)}<div class="admin-save-bar"><div><strong>Keep access personal</strong><span>Each admin gets their own email and password.</span></div><button class="btn primary" data-loading="Creating admin...">Create admin</button></div></form>`;
+  res.send(adminPage(req, 'Team', `${adminHeading('Access control', 'Admin team', 'Manage the people who can operate your Chocomedley store.', `<span class="order-total">${db.admins.length} account${db.admins.length === 1 ? '' : 's'}</span>`)}<section class="admin-team-list">${cards || '<div class="admin-empty-state"><strong>No admin accounts</strong><span>Create the first account below.</span></div>'}</section>${form}`));
+});
+
+app.post('/admin/team', requireAdmin, routeRateLimit('admin-team-create', 10, 60 * 60 * 1000), async (req, res) => {
+  const db = readDb();
+  try {
+    const name = requireName(req.body.name, 'Admin name');
+    const email = optionalEmail(req.body.email, 'Admin email');
+    const password = String(req.body.password || '');
+    if (!email) throw new Error('Admin email is required.');
+    if (db.admins.some(admin => admin.email === email)) throw new Error('An admin already exists with that email.');
+    if (!passwordMeetsPolicy(password)) throw new Error('Password must contain at least 12 characters, letters, and a number.');
+    if (password !== String(req.body.confirmPassword || '')) throw new Error('Passwords do not match.');
+    db.admins.push({ id: crypto.randomUUID(), name, email, passwordHash: await bcrypt.hash(password, 12), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+    await writeDb(db);
+    flash(req, 'success', `${name} can now sign in as an admin.`);
+  } catch (error) {
+    flash(req, 'error', error.message);
+  }
+  res.redirect('/admin/team');
+});
 
 app.get('/admin/uploads/:filename/download', requireAdmin, (req, res) => {
   const filename = path.basename(req.params.filename || '');
@@ -1734,7 +1901,7 @@ app.get('/admin/settings', requireAdmin, (req, res) => {
   const support = `<div class="admin-fields two"><label>Contact phone<input name="contactPhone" value="${esc(s.contactPhone)}" data-clean="phone" data-admin-rule="phone" inputmode="tel" autocomplete="tel" required><small class="field-error" data-error-for="contactPhone"></small></label><label>WhatsApp number<input name="whatsappNumber" value="${esc(s.whatsappNumber)}" data-clean="phone" data-admin-rule="phone" inputmode="tel" required><small class="field-error" data-error-for="whatsappNumber"></small></label></div><div class="admin-fields"><label>Support email<input type="email" name="supportEmail" value="${esc(s.supportEmail)}" maxlength="254" data-admin-rule="email" required><small class="field-error" data-error-for="supportEmail"></small></label><label>Store address<textarea name="storeAddress" maxlength="400" data-clean="text" data-admin-rule="requiredText" required>${esc(s.storeAddress)}</textarea><small class="field-error" data-error-for="storeAddress"></small></label></div>`;
   const delivery = `<div class="admin-fields two"><label>Shipping fee<span class="admin-money-input"><b>₹</b><input name="shippingFee" value="${esc(s.shippingFee)}" inputmode="decimal" maxlength="10" data-clean="decimal" data-admin-rule="optionalMoney"></span><small class="field-error" data-error-for="shippingFee"></small></label><label>Free shipping minimum<span class="admin-money-input"><b>₹</b><input name="freeShippingMinimum" value="${esc(s.freeShippingMinimum)}" inputmode="decimal" maxlength="10" data-clean="decimal" data-admin-rule="shippingThreshold"></span><small class="field-error" data-error-for="freeShippingMinimum"></small></label></div><div class="admin-fields"><label>Delivery promise<input name="deliveryText" value="${esc(s.deliveryText)}" maxlength="180" data-clean="text" data-admin-rule="requiredText" required><small class="field-error" data-error-for="deliveryText"></small></label></div><div class="admin-toggle-grid">${adminToggle('freeShippingEnabled', 'Free shipping threshold', 'Apply free shipping when the order reaches the minimum above.', s.freeShippingEnabled)}${adminToggle('codEnabled', 'Accept cash on delivery orders', 'This store currently uses COD as its checkout payment method.', s.codEnabled)}</div>`;
   const emailStatus = smtpConfigured() ? '<span class="admin-status is-live">Configured</span>' : '<span class="admin-status">Needs setup</span>';
-  const emailPanel = `<div class="admin-integration-row"><div><strong>Status email delivery</strong><p>${smtpConfigured() ? 'SMTP is configured in the server environment.' : 'Customer status emails will not send until SMTP_HOST, SMTP_USER, SMTP_PASSWORD and SMTP_FROM are added in Hostinger.'}</p></div>${emailStatus}</div>`;
+  const emailPanel = `<div id="email-integration" class="admin-integration-row"><div><strong>Status email delivery</strong><p>${smtpConfigured() ? 'SMTP is configured in the server environment.' : 'Customer status emails will not send until SMTP_HOST, SMTP_USER, SMTP_PASSWORD and SMTP_FROM are added in Hostinger.'}</p></div><div class="email-integration-actions">${emailStatus}<label class="test-email-field">Test recipient<input type="email" name="testEmail" value="${esc(s.supportEmail || DEFAULT_ORDER_EMAIL)}" maxlength="254" autocomplete="email"></label><button class="btn ghost" type="submit" formaction="/admin/email/test" formmethod="post" formnovalidate data-loading="Sending...">Send test email</button></div></div>`;
   const form = `<form class="admin-form" method="post" action="/admin/settings" data-admin-form>${csrfField(req)}${adminFormSection('01', 'Store identity', 'Brand information shown throughout the storefront.', identity)}${adminFormSection('02', 'Customer support', 'Public contact, WhatsApp and address details.', support)}${adminFormSection('03', 'Delivery and payment', 'Shipping charges, free delivery and checkout availability.', delivery)}${adminFormSection('04', 'Email integration', 'Operational status for customer order emails.', emailPanel)}<div class="admin-save-bar"><div><strong>Store-wide settings</strong><span>These values update customer pages immediately.</span></div><button class="btn primary" data-loading="Saving settings...">Save settings</button></div></form>`;
   res.send(adminPage(req, 'Settings', `${adminHeading('Operations', 'Settings', 'Manage identity, support, delivery and checkout availability.')}${form}`));
 });
