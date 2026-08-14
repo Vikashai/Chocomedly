@@ -135,7 +135,7 @@ const ASSET_VERSION = 'launch-20260813-23';
 const MAX_ORDER_QUANTITY = 20;
 const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
 const PUBLIC_WHATSAPP_NUMBER = String(process.env.PUBLIC_WHATSAPP_NUMBER || '7569907353').trim();
-const DEFAULT_ORDER_EMAIL = String(process.env.ORDER_EMAIL_ACCOUNT || 'chocomedley@gmail.com').trim();
+const DEFAULT_ORDER_EMAIL = String(process.env.ORDER_EMAIL_ACCOUNT || 'chocomedleyteam@gmail.com').trim();
 const DEMO_ADMIN_EMAIL = process.env.DEMO_ADMIN_EMAIL || 'admin@chocomedley.in';
 const IS_RENDER = Boolean(process.env.RENDER || process.env.RENDER_EXTERNAL_URL || process.env.RENDER_SERVICE_ID);
 const DEMO_ADMIN_ENABLED = process.env.DEMO_ADMIN_ENABLED === 'true' || IS_RENDER || process.env.NODE_ENV !== 'production';
@@ -681,7 +681,7 @@ function readDb() {
     data.settings.whatsappNumber = PUBLIC_WHATSAPP_NUMBER;
     changed = true;
   }
-  if (DEFAULT_ORDER_EMAIL && data.settings?.supportEmail && data.settings.supportEmail !== DEFAULT_ORDER_EMAIL && /hello@chocomedley\.in/i.test(data.settings.supportEmail)) {
+  if (DEFAULT_ORDER_EMAIL && data.settings?.supportEmail && data.settings.supportEmail !== DEFAULT_ORDER_EMAIL && /^(?:hello|chocomedley)@chocomedley\.in$|^chocomedley@gmail\.com$/i.test(data.settings.supportEmail)) {
     data.settings.supportEmail = DEFAULT_ORDER_EMAIL;
     changed = true;
   }
