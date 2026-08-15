@@ -132,6 +132,22 @@ const PRODUCT_IMAGES = [
   '/img/WhatsApp Image 2026-08-11 at 7.56.50 PM.jpeg'
 ];
 const ASSET_VERSION = 'launch-20260814-04';
+const META_PIXEL_ID = '28093024957051220';
+const META_PIXEL_HTML = `<script>
+!function(f,b,e,v,n,t,s)
+{if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+n.callMethod.apply(n,arguments):n.queue.push(arguments)};
+if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
+n.queue=[];t=b.createElement(e);t.async=!0;
+t.src=v;s=b.getElementsByTagName(e)[0];
+s.parentNode.insertBefore(t,s)}(window, document,'script',
+'https://connect.facebook.net/en_US/fbevents.js');
+fbq('init', '${META_PIXEL_ID}');
+fbq('track', 'PageView');
+</script>
+<noscript><img height="1" width="1" style="display:none"
+src="https://www.facebook.com/tr?id=${META_PIXEL_ID}&ev=PageView&noscript=1"
+/></noscript>`;
 const CARE_COPY = 'Store your handmade chocolates in a cool, dry place, ideally between 18-22\u00b0C. Keep away from direct sunlight, heat, moisture, and strong odours. During hot weather, refrigerate in an airtight container. Before enjoying, allow the sealed pack to reach room temperature to prevent condensation.';
 const MAX_ORDER_QUANTITY = 20;
 const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
@@ -1298,7 +1314,7 @@ function page(req, title, body, admin = false) {
   const announcement = db.settings.freeShippingEnabled ? 'Free shipping included on every order' : 'Carefully packed and delivered across India';
   const nav = admin ? '' : `<header class="site-header"><div class="announcement-bar"><span>${esc(announcement)}</span><span>Cash on delivery available</span><span>Delivery in 4-5 days</span></div><nav class="nav"><a class="brand" href="/"><img src="${esc(db.settings.logoPath)}" alt="${esc(db.settings.storeName)} logo"><span><strong>${esc(db.settings.storeName)}</strong><small>Artisan chocolates</small></span></a><div class="header-promises"><span><b>Freshly made</b><small>Prepared for your order</small></span><span><b>Delivered carefully</b><small>Usually in 4-5 days</small></span></div><div class="nav-actions"><a class="track-link" href="/track">Track order</a><a class="cart-link" href="/cart"><span>Cart</span><strong>${cartCount}</strong></a></div></nav></header>`;
   const footer = admin ? '' : `<footer class="site-footer"><div class="footer-inner"><a class="footer-brand" href="/"><img src="${esc(db.settings.logoPath)}" alt=""><span><strong>${esc(db.settings.storeName)}</strong><small>Thoughtful gifts, made personal.</small></span></a><div class="footer-links"><a href="/">Shop hamper</a><a href="/track">Track order</a><a href="/privacy-policy">Privacy Policy</a><a href="/terms-and-conditions">Terms and Conditions</a>${whatsappLink}</div><p>Cash on delivery. Carefully packed in India.</p><p>Email: chocomedleyteam@gmail.com &middot; Phone: 7337002088</p></div></footer>`;
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)} | ${esc(db.settings.storeName)}</title><meta name="description" content="Order the Rakhi Chocolate Hamper with custom image, extra almonds, and Cash on Delivery."><meta property="og:title" content="${esc(db.product.name)}"><meta property="og:description" content="${esc(db.product.shortDescription)}"><link rel="stylesheet" href="/assets/styles.css?v=${ASSET_VERSION}"><script defer src="/assets/app.js?v=${ASSET_VERSION}"></script></head><body>${nav}${body}${footer}</body></html>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)} | ${esc(db.settings.storeName)}</title><meta name="description" content="Order the Rakhi Chocolate Hamper with custom image, extra almonds, and Cash on Delivery."><meta property="og:title" content="${esc(db.product.name)}"><meta property="og:description" content="${esc(db.product.shortDescription)}"><link rel="stylesheet" href="/assets/styles.css?v=${ASSET_VERSION}"><script defer src="/assets/app.js?v=${ASSET_VERSION}"></script>${admin ? '' : META_PIXEL_HTML}</head><body>${nav}${body}${footer}</body></html>`;
 }
 
 function flash(req, type, message) {
