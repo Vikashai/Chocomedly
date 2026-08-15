@@ -1189,6 +1189,50 @@ async function notifyOrderStatus(order, previousStatus, nextStatus) {
   return notification;
 }
 
+function orderEmailBody(order) {
+  const address = [order.addressLine1, order.addressLine2, order.landmark].filter(Boolean).map(esc).join(', ') + `, ${esc(order.city)}, ${esc(order.state)} ${esc(order.pinCode)}`;
+  const itemsHtml = order.items.map(item => `<p><strong>${esc(item.productName)}</strong> x ${item.quantity} &mdash; ${money(item.lineTotal)}${item.customizations.length ? `<br><small>${item.customizations.map(c => `${esc(c.title)}: ${esc(c.value)}`).join('<br>')}</small>` : ''}</p>`).join('');
+  const itemsText = order.items.map(item => `- ${item.productName} x ${item.quantity} (${money(item.lineTotal)})${item.customizations.length ? '\n  ' + item.customizations.map(c => `${c.title}: ${c.value}`).join('\n  ') : ''}`).join('\n');
+  const discountHtml = order.discountAmount > 0 ? `<br><strong>Coupon (${esc(order.couponCode)}):</strong> -${money(order.discountAmount)}` : '';
+  const discountText = order.discountAmount > 0 ? `\nCoupon (${order.couponCode}): -${money(order.discountAmount)}` : '';
+  const pricingHtml = `<strong>Subtotal:</strong> ${money(order.subtotal)}${discountHtml}<br><strong>Total:</strong> ${money(order.total)}<br><strong>Payment:</strong> Cash on Delivery`;
+  const pricingText = `Subtotal: ${money(order.subtotal)}${discountText}\nTotal: ${money(order.total)}\nPayment: Cash on Delivery`;
+  return { address, itemsHtml, itemsText, pricingHtml, pricingText };
+}
+
+async function sendNewOrderEmails(db, order) {
+  if (!smtpConfigured()) {
+    console.warn(`[email] New order ${order.orderId}: SMTP is not configured; order emails were skipped.`);
+    return;
+  }
+  const { address, itemsHtml, itemsText, pricingHtml, pricingText } = orderEmailBody(order);
+  const adminTo = db.settings.supportEmail || DEFAULT_ORDER_EMAIL;
+  if (adminTo) {
+    try {
+      await sendTransactionalEmail({
+        to: adminTo,
+        subject: `New order ${order.orderId} – ${money(order.total)}`,
+        text: `New order received.\n\nOrder: ${order.orderId}\nCustomer: ${order.customerName}\nMobile: ${order.mobile}${order.alternateMobile ? ` / ${order.alternateMobile}` : ''}\nEmail: ${order.email || 'Not provided'}\nAddress: ${address.replace(/&mdash;/g, '-')}\n${order.customerNotes ? `Notes: ${order.customerNotes}\n` : ''}\nItems:\n${itemsText}\n\n${pricingText}\n\nView in admin: https://chocomedley.com/admin/orders/${order.orderId}`,
+        html: `<h2>New order received</h2><p><strong>${esc(order.orderId)}</strong> &middot; ${money(order.total)}</p><p><strong>Customer:</strong> ${esc(order.customerName)}<br><strong>Mobile:</strong> ${esc(order.mobile)}${order.alternateMobile ? ` / ${esc(order.alternateMobile)}` : ''}<br><strong>Email:</strong> ${esc(order.email || 'Not provided')}</p><p><strong>Address:</strong><br>${address}</p>${order.customerNotes ? `<p><strong>Notes:</strong> ${esc(order.customerNotes)}</p>` : ''}<h3>Items</h3>${itemsHtml}<p>${pricingHtml}</p><p><a href="https://chocomedley.com/admin/orders/${esc(order.orderId)}">Open in admin</a></p>`
+      });
+    } catch (error) {
+      console.error('[email] Admin new-order alert failed:', error.code || error.message);
+    }
+  }
+  if (order.email) {
+    try {
+      await sendTransactionalEmail({
+        to: order.email,
+        subject: `Your Chocomedley order ${order.orderId} is confirmed`,
+        text: `Hi ${order.customerName}, thank you for your order!\n\nOrder: ${order.orderId}\n\nItems:\n${itemsText}\n\n${pricingText}\n\nDelivery address:\n${address.replace(/&mdash;/g, '-')}\n\nTrack your order: https://chocomedley.com/track`,
+        html: `<p>Hi ${esc(order.customerName)},</p><p>Thank you for your order! Here are your order details.</p><p><strong>Order ID:</strong> ${esc(order.orderId)}</p><h3>Items</h3>${itemsHtml}<p>${pricingHtml}</p><p><strong>Delivery address:</strong><br>${address}</p><p><a href="https://chocomedley.com/track">Track your order</a></p>`
+      });
+    } catch (error) {
+      console.error('[email] Customer order confirmation failed:', error.code || error.message);
+    }
+  }
+}
+
 function csrf(req) {
   if (!req.session.csrf) req.session.csrf = crypto.randomBytes(32).toString('hex');
   return req.session.csrf;
@@ -1532,6 +1576,7 @@ app.post('/checkout', routeRateLimit('checkout', 5, 30 * 60 * 1000), async (req,
     req.session.cart = [];
     req.session.lastOrder = orderId;
     delete req.session.couponCode;
+    sendNewOrderEmails(db, order).catch(error => console.error('[email] New order email dispatch failed:', error.code || error.message));
     res.redirect('/success');
   } catch (e) {
     console.error('Checkout failed:', e);
