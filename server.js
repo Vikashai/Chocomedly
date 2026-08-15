@@ -526,6 +526,7 @@ function ensureRecoveryAdmin(data) {
 
 let mysqlPool = null;
 let dbCache = null;
+let dbCacheVersion = 0;
 let storageWriteQueue = Promise.resolve();
 
 function mysqlConfig() {
@@ -612,6 +613,7 @@ function readStoredDb() {
 async function writeStoredDb(data) {
   const snapshot = JSON.parse(JSON.stringify(data));
   dbCache = snapshot;
+  dbCacheVersion += 1;
   const write = storageWriteQueue.catch(() => {}).then(async () => {
     if (mysqlPool) {
       await mysqlPool.query(
@@ -626,6 +628,23 @@ async function writeStoredDb(data) {
   });
   storageWriteQueue = write;
   await write;
+}
+
+// Multiple app instances can share the same MySQL-backed store, and each keeps its own
+// in-memory dbCache for speed. Without this, an order written by one instance can stay
+// invisible to admins landing on another instance until that instance happens to write.
+// The version check discards the refreshed snapshot if a newer local write raced ahead of it.
+async function refreshMysqlCache() {
+  if (!mysqlPool) return;
+  const versionBeforeFetch = dbCacheVersion;
+  try {
+    const [rows] = await mysqlPool.query('SELECT state_json FROM app_state WHERE state_key = ?', ['store']);
+    if (rows[0]?.state_json && dbCacheVersion === versionBeforeFetch) {
+      dbCache = JSON.parse(rows[0].state_json);
+    }
+  } catch (error) {
+    console.error('[storage] Cache refresh from MySQL failed:', error.code || error.message);
+  }
 }
 
 function readDb() {
@@ -1808,7 +1827,8 @@ app.get('/admin/uploads/:filename/view', requireAdmin, (req, res) => {
   res.sendFile(filePath);
 });
 
-app.get('/admin', requireAdmin, (req, res) => {
+app.get('/admin', requireAdmin, async (req, res) => {
+  await refreshMysqlCache();
   const db = readDb();
   const today = new Date().toISOString().slice(0, 10);
   const ordersToday = db.orders.filter(o => o.createdAt.slice(0, 10) === today);
@@ -1819,7 +1839,8 @@ app.get('/admin', requireAdmin, (req, res) => {
 
 const statuses = ['New Order', 'Confirmed', 'Preparing', 'Ready to Ship', 'Shipped', 'Out for Delivery', 'Delivered', 'Cancelled'];
 
-app.get('/admin/orders', requireAdmin, (req, res) => {
+app.get('/admin/orders', requireAdmin, async (req, res) => {
+  await refreshMysqlCache();
   const q = String(req.query.q || '').toLowerCase();
   const status = String(req.query.status || '');
   const orders = readDb().orders.filter(o => (!q || [o.orderId, o.customerName, o.mobile].some(v => String(v).toLowerCase().includes(q))) && (!status || o.orderStatus === status));
@@ -1830,7 +1851,8 @@ app.get('/admin/orders', requireAdmin, (req, res) => {
   res.send(adminPage(req, 'Orders', `${adminHeading('Fulfilment', 'Orders', 'Manage customer orders, uploaded designs and delivery status.', `<span class="order-total">${orders.length} order${orders.length === 1 ? '' : 's'}</span>`)}<form class="order-filter"><input name="q" aria-label="Search orders" placeholder="Search order, customer, mobile" value="${esc(req.query.q || '')}"><select name="status" aria-label="Filter by status"><option value="">All statuses</option>${statuses.map(s => `<option ${status === s ? 'selected' : ''}>${s}</option>`).join('')}</select><button class="btn">Filter</button></form><div class="orders-list">${cards}</div>`));
 });
 
-app.get('/admin/orders/:orderId', requireAdmin, (req, res) => {
+app.get('/admin/orders/:orderId', requireAdmin, async (req, res) => {
+  await refreshMysqlCache();
   const order = readDb().orders.find(o => o.orderId === req.params.orderId);
   if (!order) return res.send(adminPage(req, 'Order Not Found', '<p class="notice error">Order not found.</p>'));
   const items = order.items.map(item => `<h3>${esc(item.productName)} x ${item.quantity}</h3><p><span class="info-label">Base:</span> ${money(item.basePrice)} | <span class="info-label">Line:</span> ${money(item.lineTotal)}</p>${item.customizations.map(c => `<div class="order-customization"><p><span class="info-label">${esc(c.title)}:</span> ${esc(c.value)} (+${money(c.price)})</p></div>`).join('')}`).join('');
@@ -2258,6 +2280,10 @@ async function start() {
       }
     }, STORAGE_RETRY_MS);
     retry.unref();
+  }
+  if (DB_DRIVER === 'mysql') {
+    const poll = setInterval(() => { refreshMysqlCache(); }, 5000);
+    poll.unref();
   }
   for (const signal of ['SIGTERM', 'SIGINT']) {
     process.on(signal, () => {
