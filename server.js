@@ -396,11 +396,76 @@ function storefrontVisitorId(req, res, now) {
   return visitorId;
 }
 
+// Funnel analytics: counts are buffered in memory and flushed to storage in batches
+// (see flushAnalytics/start()) rather than on every request, so tracking never adds a
+// database write to the hot path of a page view or cart action.
+let analyticsDeltas = {};
+let dailySeenVisitors = new Set();
+let dailySeenVisitorsDateKey = '';
+
+function todayKey() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function bumpAnalytics(key, amount = 1) {
+  const dateKey = todayKey();
+  const day = analyticsDeltas[dateKey] || (analyticsDeltas[dateKey] = {});
+  day[key] = (day[key] || 0) + amount;
+}
+
+function trackVisitorForAnalytics(visitorId) {
+  const dateKey = todayKey();
+  if (dateKey !== dailySeenVisitorsDateKey) {
+    dailySeenVisitors = new Set();
+    dailySeenVisitorsDateKey = dateKey;
+  }
+  if (!dailySeenVisitors.has(visitorId)) {
+    dailySeenVisitors.add(visitorId);
+    bumpAnalytics('uniqueVisitors', 1);
+  }
+}
+
+async function flushAnalytics() {
+  const pending = analyticsDeltas;
+  analyticsDeltas = {};
+  const dateKeys = Object.keys(pending);
+  if (!dateKeys.length) return;
+  try {
+    await refreshMysqlCache();
+    const db = readDb();
+    db.analytics = db.analytics && typeof db.analytics === 'object' ? db.analytics : {};
+    for (const dateKey of dateKeys) {
+      const day = db.analytics[dateKey] || (db.analytics[dateKey] = {});
+      for (const [key, amount] of Object.entries(pending[dateKey])) {
+        day[key] = (Number(day[key]) || 0) + amount;
+      }
+    }
+    const cutoff = new Date(Date.now() - 120 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    for (const dateKey of Object.keys(db.analytics)) {
+      if (dateKey < cutoff) delete db.analytics[dateKey];
+    }
+    await writeDb(db);
+  } catch (error) {
+    console.error('[analytics] Flush failed, will retry next cycle:', error.code || error.message);
+    for (const dateKey of dateKeys) {
+      const day = analyticsDeltas[dateKey] || (analyticsDeltas[dateKey] = {});
+      for (const [key, amount] of Object.entries(pending[dateKey])) {
+        day[key] = (day[key] || 0) + amount;
+      }
+    }
+  }
+}
+
 app.use((req, res, next) => {
   if (!req.path.startsWith('/admin') && !req.path.startsWith('/assets') && !req.path.startsWith('/img') && !req.path.startsWith('/catalog') && !req.path.startsWith('/uploads') && !['/healthz', '/store-activity', '/robots.txt', '/sitemap.xml'].includes(req.path)) {
     const now = Date.now();
-    activeStorefrontVisitors.set(storefrontVisitorId(req, res, now), now);
+    const visitorId = storefrontVisitorId(req, res, now);
+    activeStorefrontVisitors.set(visitorId, now);
     pruneStorefrontVisitors(now);
+    if (req.method === 'GET') {
+      bumpAnalytics('visits', 1);
+      trackVisitorForAnalytics(visitorId);
+    }
   }
   next();
 });
@@ -475,6 +540,7 @@ function seed() {
     ],
     orders: [],
     coupons: [],
+    analytics: {},
     nextOrderNumber: 10001,
     nextOptionId: 5,
     nextCouponId: 1
@@ -680,6 +746,10 @@ function readDb() {
   }
   if (!Array.isArray(data.coupons)) {
     data.coupons = [];
+    changed = true;
+  }
+  if (!data.analytics || typeof data.analytics !== 'object' || Array.isArray(data.analytics)) {
+    data.analytics = {};
     changed = true;
   }
   const activeResetTokens = data.adminResetTokens.filter(token => Number(token.expiresAt) > Date.now());
@@ -1440,7 +1510,7 @@ function addLine(req, files) {
 }
 
 app.post('/cart/add', routeRateLimit('cart-add', 20, 10 * 60 * 1000), upload.any(), (req, res) => {
-  try { assertCsrf(req); cart(req).push(addLine(req, req.files || [])); res.redirect('/?cart=open'); }
+  try { assertCsrf(req); cart(req).push(addLine(req, req.files || [])); bumpAnalytics('cartAdds', 1); res.redirect('/?cart=open'); }
   catch (e) { removeFiles(req.files || []); flash(req, 'error', e.message); res.redirect('/'); }
 });
 
@@ -1450,6 +1520,7 @@ app.post('/buy-now', routeRateLimit('buy-now', 20, 10 * 60 * 1000), upload.any()
     const line = addLine(req, req.files || []);
     cart(req).forEach(item => removeCustomizationUploads(item.customizations));
     req.session.cart = [line];
+    bumpAnalytics('cartAdds', 1);
     res.redirect('/checkout');
   } catch (e) { removeFiles(req.files || []); flash(req, 'error', e.message); res.redirect('/'); }
 });
@@ -1519,6 +1590,7 @@ app.get('/checkout', (req, res) => {
     flash(req, 'error', 'Ordering is temporarily paused. Please contact us on WhatsApp.');
     return res.redirect('/cart');
   }
+  bumpAnalytics('checkoutViews', 1);
   const totals = cartTotals(req);
   const stateOptions = INDIA_STATES.map(state => `<option value="${esc(state)}">${esc(state)}</option>`).join('');
   const form = `<form class="checkout-form" method="post" action="/checkout" data-once data-checkout-form novalidate>${csrfField(req)}${flashHtml(req)}<section class="checkout-section"><div class="form-section-head"><span>1</span><div><h2>Contact details</h2><p>We use these details only for your order and delivery.</p></div></div><div class="grid two"><label>Full name<input name="customerName" autocomplete="name" maxlength="60" data-clean="person" data-rule="person" required><small class="field-error" data-error-for="customerName"></small></label><label>Mobile number<input name="mobile" inputmode="numeric" autocomplete="tel" maxlength="10" data-clean="digits" data-rule="mobile" required><small class="field-error" data-error-for="mobile"></small></label></div><div class="grid two"><label>Alternate mobile <span class="optional-label">Optional</span><input name="alternateMobile" inputmode="numeric" autocomplete="tel" maxlength="10" data-clean="digits" data-rule="optionalMobile"><small class="field-error" data-error-for="alternateMobile"></small></label><label>Email <span class="optional-label">Optional</span><input type="email" name="email" maxlength="254" autocomplete="email" data-rule="optionalEmail"><small class="field-error" data-error-for="email"></small></label></div></section><section class="checkout-section"><div class="form-section-head"><span>2</span><div><h2>Delivery address</h2><p>Enter the complete address where the hamper should arrive.</p></div></div><label>Address line 1<input name="addressLine1" autocomplete="address-line1" maxlength="180" data-clean="address" data-rule="requiredText" required><small class="field-error" data-error-for="addressLine1"></small></label><label>Address line 2 <span class="optional-label">Optional</span><input name="addressLine2" autocomplete="address-line2" maxlength="180" data-clean="address"></label><div class="grid two"><label>Landmark <span class="optional-label">Optional</span><input name="landmark" maxlength="120" data-clean="address"><small class="field-error" data-error-for="landmark"></small></label><label>PIN code<input name="pinCode" inputmode="numeric" autocomplete="postal-code" maxlength="6" data-clean="digits" data-rule="pin" required><small class="field-error" data-error-for="pinCode"></small></label></div><div class="grid two"><label>City<input name="city" autocomplete="address-level2" maxlength="60" data-clean="person" data-rule="person" required><small class="field-error" data-error-for="city"></small></label><label>State<select name="state" required data-rule="requiredSelect"><option value="">Select state or union territory</option>${stateOptions}</select><small class="field-error" data-error-for="state"></small></label></div><label>Order notes <span class="optional-label">Optional</span><textarea name="customerNotes" maxlength="500" data-clean="address" placeholder="Delivery instructions or a note for our team"></textarea></label></section><div class="payment-choice"><span>Free shipping</span><div><strong>Delivery is included in the price</strong><small>No extra shipping charge will be added at checkout.</small></div></div><div class="payment-choice"><span>Cash on delivery</span><div><strong>Pay when your hamper arrives</strong><small>No online payment is required today.</small></div></div><label class="checkout-consent"><input type="checkbox" name="orderConfirmation" value="1" required data-rule="confirmation"><span><strong>Confirm this cash on delivery order</strong><small>I have checked the delivery details and agree to be contacted about this order.</small></span></label><small class="field-error checkout-consent-error" data-error-for="orderConfirmation"></small><button type="submit" class="btn dark wide checkout-submit" data-loading="Placing order...">Place cash on delivery order</button></form>`;
@@ -1605,6 +1677,7 @@ app.get('/success', (req, res) => {
   const db = readDb();
   const order = db.orders.find(o => o.orderId === req.session.lastOrder);
   if (!order) return res.redirect('/');
+  bumpAnalytics('thankYouViews', 1);
   const whatsappCard = `<section class="success-support"><div><p class="eyebrow">Stay connected</p><h2>Get delivery updates on WhatsApp</h2><p>Message Chocomedley for tracking help, delivery updates or any change to your order.</p></div>${whatsappCta(db.settings, 'Message us on WhatsApp', `Hi Chocomedley, I placed order ${order.orderId}. Please keep me updated on tracking and delivery.`, 'wide')}</section>`;
   res.send(page(req, 'Order Placed', `<main class="container success-page"><section class="success-hero"><span class="success-mark">✓</span><p class="eyebrow">Order confirmed</p><h1>Thank you, ${esc(order.customerName)}.</h1><p>Your personalised chocolate hamper has been received by our team. We will prepare it carefully and keep you updated.</p><div class="success-order-id"><span>Order ID</span><strong>${esc(order.orderId)}</strong></div></section><section class="success-details"><div><span>Payment</span><strong>Cash on delivery</strong></div><div><span>Order total</span><strong>${money(order.total)}</strong></div><div><span>Updates sent to</span><strong>${esc(order.mobile)}</strong></div></section><div class="success-actions"><a class="btn dark" href="/track">Track your order</a><a class="btn ghost" href="/">Return to shop</a></div>${whatsappCard}</main>`));
 });
@@ -1644,6 +1717,7 @@ function requireAdmin(req, res, next) {
 
 const ADMIN_LINKS = [
   { href: '/admin', label: 'Dashboard', match: pathValue => pathValue === '/admin' },
+  { href: '/admin/analytics', label: 'Analytics', match: pathValue => pathValue.startsWith('/admin/analytics') },
   { href: '/admin/orders', label: 'Orders', match: pathValue => pathValue.startsWith('/admin/orders') },
   { href: '/admin/product', label: 'Product', match: pathValue => pathValue.startsWith('/admin/product') },
   { href: '/admin/customizations', label: 'Customizations', match: pathValue => pathValue.startsWith('/admin/customizations') },
@@ -1896,6 +1970,53 @@ app.get('/admin', requireAdmin, async (req, res) => {
   const stat = (label, value) => `<div class="panel stat"><p class="muted">${label}</p><h2>${value}</h2></div>`;
   const recentRows = db.orders.slice(0, 8).map(o => `<tr><td>${orderUploadPreview(o)}</td><td><a href="/admin/orders/${esc(o.orderId)}">${esc(o.orderId)}</a><small class="muted">${esc(o.createdAt.slice(0, 10))}</small></td><td><span class="info-label">Customer:</span> ${esc(o.customerName)}<small class="muted"><span class="info-label">Mobile:</span> ${esc(o.mobile)}</small></td><td>${money(o.total)}</td><td><span class="status-pill">${esc(o.orderStatus)}</span></td><td><form class="quick-status-form" method="post" action="/admin/orders/${esc(o.orderId)}/status">${csrfField(req)}<select name="orderStatus">${statusOptions(o.orderStatus)}</select>${emailNotifyToggle(o, 'Email')}<button type="submit" class="btn">Save</button></form></td></tr>`).join('') || '<tr><td colspan="6">No orders yet.</td></tr>';
   res.send(adminPage(req, 'Dashboard', `${adminHeading('Overview', 'Dashboard', 'A clear view of sales, fulfilment and customer orders.', '<a class="btn ghost" href="/" target="_blank" rel="noopener">View storefront</a>')}<div class="stats">${stat('Orders Today', ordersToday.length)}${stat('Revenue Today', money(ordersToday.reduce((s, o) => s + o.total, 0)))}${stat('Total Orders', db.orders.length)}${stat('Total Revenue', money(db.orders.reduce((s, o) => s + o.total, 0)))}</div><section class="admin-section"><div class="admin-section-head"><h2>Recent Orders</h2><a class="btn ghost" href="/admin/orders">View all</a></div><div class="admin-table-wrap"><table><tr><th>Designs</th><th>Order</th><th>Customer</th><th>Amount</th><th>Status</th><th>Quick Update</th></tr>${recentRows}</table></div></section>`));
+});
+
+function analyticsRow(db, dateKey) {
+  const day = db.analytics?.[dateKey] || {};
+  const orders = db.orders.filter(o => o.createdAt.slice(0, 10) === dateKey);
+  return {
+    dateKey,
+    visits: Number(day.visits || 0),
+    uniqueVisitors: Number(day.uniqueVisitors || 0),
+    cartAdds: Number(day.cartAdds || 0),
+    checkoutViews: Number(day.checkoutViews || 0),
+    orders: orders.length,
+    revenue: orders.reduce((sum, o) => sum + o.total, 0),
+    thankYouViews: Number(day.thankYouViews || 0)
+  };
+}
+
+function abandonmentRate(cartAdds, orders) {
+  if (!cartAdds) return null;
+  return Math.max(0, Math.min(100, ((cartAdds - orders) / cartAdds) * 100));
+}
+
+app.get('/admin/analytics', requireAdmin, async (req, res) => {
+  await refreshMysqlCache();
+  const db = readDb();
+  const rangeDays = 14;
+  const rows = [];
+  for (let i = 0; i < rangeDays; i++) {
+    const date = new Date();
+    date.setDate(date.getDate() - i);
+    rows.push(analyticsRow(db, date.toISOString().slice(0, 10)));
+  }
+  const today = rows[0];
+  const last7 = rows.slice(0, 7).reduce((sum, r) => ({
+    visits: sum.visits + r.visits, uniqueVisitors: sum.uniqueVisitors + r.uniqueVisitors, cartAdds: sum.cartAdds + r.cartAdds,
+    checkoutViews: sum.checkoutViews + r.checkoutViews, orders: sum.orders + r.orders, thankYouViews: sum.thankYouViews + r.thankYouViews
+  }), { visits: 0, uniqueVisitors: 0, cartAdds: 0, checkoutViews: 0, orders: 0, thankYouViews: 0 });
+  const stat = (label, value, hint = '') => `<div class="panel stat"><p class="muted">${esc(label)}</p><h2>${esc(String(value))}</h2>${hint ? `<small class="muted">${esc(hint)}</small>` : ''}</div>`;
+  const todayAbandon = abandonmentRate(today.cartAdds, today.orders);
+  const last7Abandon = abandonmentRate(last7.cartAdds, last7.orders);
+  const pct = value => value === null ? '—' : `${value.toFixed(0)}%`;
+  const tableRows = rows.map(r => {
+    const abandon = abandonmentRate(r.cartAdds, r.orders);
+    return `<tr><td>${esc(r.dateKey)}</td><td>${r.visits}</td><td>${r.uniqueVisitors}</td><td>${r.cartAdds}</td><td>${r.checkoutViews}</td><td>${r.orders}</td><td>${r.thankYouViews}</td><td>${pct(abandon)}</td></tr>`;
+  }).join('');
+  const body = `${adminHeading('Insights', 'Visitor & Cart Analytics', 'Track visits, cart abandonment and Thank You page views across your funnel.')}<div class="stats">${stat('Visits Today', today.visits)}${stat('Unique Visitors Today', today.uniqueVisitors, 'Approximate')}${stat('Cart Adds Today', today.cartAdds)}${stat('Thank You Views Today', today.thankYouViews)}</div><div class="stats">${stat('Orders Today', today.orders)}${stat('Cart Abandonment Today', pct(todayAbandon), 'Cart adds that never became an order')}${stat('Cart Abandonment (7 days)', pct(last7Abandon))}${stat('Checkout Views (7 days)', last7.checkoutViews)}</div><section class="admin-section"><div class="admin-section-head"><h2>Last 14 days</h2><span class="muted">Numbers refresh about once a minute.</span></div><div class="admin-table-wrap"><table><tr><th>Date</th><th>Visits</th><th>Unique Visitors</th><th>Cart Adds</th><th>Checkout Views</th><th>Orders</th><th>Thank You Views</th><th>Abandoned</th></tr>${tableRows}</table></div><p class="muted" style="margin-top:14px">Visits count storefront page loads; Unique Visitors is an approximate daily count from a tracking cookie. Cart Adds counts every "Add to cart" and "Buy now". Abandoned = cart adds that never turned into a placed order.</p></section>`;
+  res.send(adminPage(req, 'Analytics', body));
 });
 
 const statuses = ['New Order', 'Confirmed', 'Preparing', 'Ready to Ship', 'Shipped', 'Out for Delivery', 'Delivered', 'Cancelled'];
@@ -2346,10 +2467,12 @@ async function start() {
     const poll = setInterval(() => { refreshMysqlCache(); }, 5000);
     poll.unref();
   }
+  const analyticsFlush = setInterval(() => { flushAnalytics(); }, 60000);
+  analyticsFlush.unref();
   for (const signal of ['SIGTERM', 'SIGINT']) {
     process.on(signal, () => {
       console.log(`[shutdown] ${signal} received; closing server.`);
-      server.close(() => process.exit(0));
+      flushAnalytics().finally(() => server.close(() => process.exit(0)));
     });
   }
 }
