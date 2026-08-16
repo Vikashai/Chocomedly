@@ -2066,19 +2066,53 @@ app.get('/admin/analytics', requireAdmin, async (req, res) => {
     return `<tr><td>${esc(r.dateKey)}</td><td>${r.visits}</td><td>${r.uniqueVisitors}</td><td>${r.cartAdds}</td><td>${r.checkoutViews}</td><td>${r.orders}</td><td>${r.thankYouViews}</td><td>${pct(abandon)}</td></tr>`;
   }).join('');
   const sourceCutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const recentOrders = db.orders.filter(o => o.createdAt.slice(0, 10) >= sourceCutoff);
   const bySource = {};
-  for (const o of db.orders) {
-    if (o.createdAt.slice(0, 10) < sourceCutoff) continue;
-    const label = utmSourceLabel(o.utm);
-    const entry = bySource[label] || (bySource[label] = { orders: 0, revenue: 0 });
-    entry.orders += 1;
-    entry.revenue += o.total;
+  const byCampaign = {};
+  for (const o of recentOrders) {
+    const source = utmSourceLabel(o.utm);
+    const sourceEntry = bySource[source] || (bySource[source] = { orders: 0, revenue: 0 });
+    sourceEntry.orders += 1;
+    sourceEntry.revenue += o.total;
+    const medium = (o.utm && o.utm.utm_medium) || '—';
+    const campaign = (o.utm && o.utm.utm_campaign) || '—';
+    const campaignKey = `${source}${medium}${campaign}`;
+    const campaignEntry = byCampaign[campaignKey] || (byCampaign[campaignKey] = { source, medium, campaign, orders: 0, revenue: 0 });
+    campaignEntry.orders += 1;
+    campaignEntry.revenue += o.total;
   }
   const sourceRows = Object.entries(bySource).sort((a, b) => b[1].revenue - a[1].revenue)
     .map(([label, entry]) => `<tr><td>${esc(label)}</td><td>${entry.orders}</td><td>${money(entry.revenue)}</td></tr>`).join('')
     || '<tr><td colspan="3">No orders in the last 30 days.</td></tr>';
-  const body = `${adminHeading('Insights', 'Visitor & Cart Analytics', 'Track visits, cart abandonment and Thank You page views across your funnel.')}<div class="stats">${stat('Visits Today', today.visits)}${stat('Unique Visitors Today', today.uniqueVisitors, 'Approximate')}${stat('Cart Adds Today', today.cartAdds)}${stat('Thank You Views Today', today.thankYouViews)}</div><div class="stats">${stat('Orders Today', today.orders)}${stat('Cart Abandonment Today', pct(todayAbandon), 'Cart adds that never became an order')}${stat('Cart Abandonment (7 days)', pct(last7Abandon))}${stat('Checkout Views (7 days)', last7.checkoutViews)}</div><section class="admin-section"><div class="admin-section-head"><h2>Last 14 days</h2><span class="muted">Cart adds, checkout views and Thank You views update within a few seconds. Visits update at least every 20 seconds.</span></div><div class="admin-table-wrap"><table><tr><th>Date</th><th>Visits</th><th>Unique Visitors</th><th>Cart Adds</th><th>Checkout Views</th><th>Orders</th><th>Thank You Views</th><th>Abandoned</th></tr>${tableRows}</table></div><p class="muted" style="margin-top:14px">Visits count storefront page loads; Unique Visitors is an approximate daily count from a tracking cookie. Cart Adds counts every "Add to cart" and "Buy now". Abandoned = cart adds that never turned into a placed order.</p></section><section class="admin-section"><div class="admin-section-head"><h2>Revenue by Source (30 days)</h2><span class="muted">Based on utm_source, or Google/Facebook click IDs when present.</span></div><div class="admin-table-wrap"><table><tr><th>Source</th><th>Orders</th><th>Revenue</th></tr>${sourceRows}</table></div><p class="muted" style="margin-top:14px">Source is captured from the URL a customer first lands on (utm_source, utm_medium, utm_campaign, utm_term, utm_content, gclid, fbclid) and remembered for 30 days, so it can be attributed to an order placed later in the same visit or a return visit. Open any order for its full campaign details.</p></section>`;
+  const campaignRows = Object.values(byCampaign).sort((a, b) => b.revenue - a.revenue)
+    .map(e => `<tr><td>${esc(e.source)}</td><td>${esc(e.medium)}</td><td>${esc(e.campaign)}</td><td>${e.orders}</td><td>${money(e.revenue)}</td></tr>`).join('')
+    || '<tr><td colspan="5">No orders in the last 30 days.</td></tr>';
+  const exportAction = '<a class="btn ghost" href="/admin/analytics/export.csv">Export CSV</a>';
+  const body = `${adminHeading('Insights', 'Visitor & Cart Analytics', 'Track visits, cart abandonment and Thank You page views across your funnel.', exportAction)}<div class="stats">${stat('Visits Today', today.visits)}${stat('Unique Visitors Today', today.uniqueVisitors, 'Approximate')}${stat('Cart Adds Today', today.cartAdds)}${stat('Thank You Views Today', today.thankYouViews)}</div><div class="stats">${stat('Orders Today', today.orders)}${stat('Cart Abandonment Today', pct(todayAbandon), 'Cart adds that never became an order')}${stat('Cart Abandonment (7 days)', pct(last7Abandon))}${stat('Checkout Views (7 days)', last7.checkoutViews)}</div><section class="admin-section"><div class="admin-section-head"><h2>Last 14 days</h2><span class="muted">Cart adds, checkout views and Thank You views update within a few seconds. Visits update at least every 20 seconds.</span></div><div class="admin-table-wrap"><table><tr><th>Date</th><th>Visits</th><th>Unique Visitors</th><th>Cart Adds</th><th>Checkout Views</th><th>Orders</th><th>Thank You Views</th><th>Abandoned</th></tr>${tableRows}</table></div><p class="muted" style="margin-top:14px">Visits count storefront page loads; Unique Visitors is an approximate daily count from a tracking cookie. Cart Adds counts every "Add to cart" and "Buy now". Abandoned = cart adds that never turned into a placed order.</p></section><section class="admin-section"><div class="admin-section-head"><h2>Revenue by Source (30 days)</h2><span class="muted">Based on utm_source, or Google/Facebook click IDs when present.</span></div><div class="admin-table-wrap"><table><tr><th>Source</th><th>Orders</th><th>Revenue</th></tr>${sourceRows}</table></div></section><section class="admin-section"><div class="admin-section-head"><h2>Revenue by Campaign (30 days)</h2><span class="muted">Groups orders by Source + Medium + Campaign, so separate campaigns on the same platform show up individually.</span></div><div class="admin-table-wrap"><table><tr><th>Source</th><th>Medium</th><th>Campaign</th><th>Orders</th><th>Revenue</th></tr>${campaignRows}</table></div><p class="muted" style="margin-top:14px">Source/campaign is captured from the URL a customer first lands on (utm_source, utm_medium, utm_campaign, utm_term, utm_content, gclid, fbclid) and remembered for 30 days, so it can be attributed to an order placed later in the same visit or a return visit. Open any order for its full campaign details, or use Export CSV above for every order with its raw UTM fields.</p></section>`;
   res.send(adminPage(req, 'Analytics', body));
+});
+
+function csvField(value) {
+  const text = String(value ?? '');
+  return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+app.get('/admin/analytics/export.csv', requireAdmin, async (req, res) => {
+  await refreshMysqlCache();
+  const db = readDb();
+  const columns = ['Order ID', 'Date', 'Order Status', 'Payment Status', 'Customer Name', 'Mobile', 'Subtotal', 'Coupon Code', 'Discount', 'Total', 'UTM Source', 'UTM Medium', 'UTM Campaign', 'UTM Term', 'UTM Content', 'Google Click ID', 'Facebook Click ID'];
+  const lines = [columns.join(',')];
+  for (const o of db.orders) {
+    const utm = o.utm || {};
+    lines.push([
+      o.orderId, o.createdAt.slice(0, 10), o.orderStatus, o.paymentStatus, o.customerName, o.mobile,
+      o.subtotal, o.couponCode || '', o.discountAmount || 0, o.total,
+      utm.utm_source || '', utm.utm_medium || '', utm.utm_campaign || '', utm.utm_term || '', utm.utm_content || '', utm.gclid || '', utm.fbclid || ''
+    ].map(csvField).join(','));
+  }
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="chocomedley-orders-utm-${new Date().toISOString().slice(0, 10)}.csv"`);
+  res.send(lines.join('\r\n'));
 });
 
 const statuses = ['New Order', 'Confirmed', 'Preparing', 'Ready to Ship', 'Shipped', 'Out for Delivery', 'Delivered', 'Cancelled'];
