@@ -148,6 +148,14 @@ fbq('track', 'PageView');
 <noscript><img height="1" width="1" style="display:none"
 src="https://www.facebook.com/tr?id=${META_PIXEL_ID}&ev=PageView&noscript=1"
 /></noscript>`;
+const CLARITY_ID = 'y3f82u7lng';
+const CLARITY_HTML = `<script type="text/javascript">
+    (function(c,l,a,r,i,t,y){
+        c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};
+        t=l.createElement(r);t.async=1;t.src="https://www.clarity.ms/tag/"+i;
+        y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);
+    })(window, document, "clarity", "script", "${CLARITY_ID}");
+</script>`;
 const CARE_COPY = 'Store your handmade chocolates in a cool, dry place, ideally between 18-22\u00b0C. Keep away from direct sunlight, heat, moisture, and strong odours. During hot weather, refrigerate in an airtight container. Before enjoying, allow the sealed pack to reach room temperature to prevent condensation.';
 const MAX_ORDER_QUANTITY = 20;
 const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
@@ -396,6 +404,37 @@ function storefrontVisitorId(req, res, now) {
   return visitorId;
 }
 
+// Attribution: whichever campaign params show up on a landing URL are saved for 30 days so
+// they can be stamped onto an order placed later in the same visit (or a return visit within
+// the window), giving the ad team source/medium/campaign per order without a new analytics stack.
+const UTM_COOKIE = 'chocomedley.utm';
+const UTM_FIELDS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 'gclid', 'fbclid'];
+
+function captureUtmParams(req, res) {
+  const found = {};
+  for (const field of UTM_FIELDS) {
+    const value = String(req.query[field] || '').trim().slice(0, 150);
+    if (value) found[field] = value;
+  }
+  if (Object.keys(found).length) {
+    res.cookie(UTM_COOKIE, JSON.stringify(found), { httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: 30 * 24 * 60 * 60 * 1000 });
+  }
+}
+
+function currentUtm(req) {
+  const raw = requestCookie(req, UTM_COOKIE);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(decodeURIComponent(raw));
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
+  } catch (_) { /* malformed or tampered cookie; treat as no attribution */ }
+  return null;
+}
+
+function utmSourceLabel(utm) {
+  return (utm && (utm.utm_source || utm.gclid && 'google' || utm.fbclid && 'facebook')) || 'Direct';
+}
+
 // Funnel analytics: counts are buffered in memory and flushed to storage in batches
 // (see flushAnalytics/start()) rather than on every request, so tracking never adds a
 // database write to the hot path of a page view or cart action.
@@ -474,6 +513,7 @@ app.use((req, res, next) => {
     if (req.method === 'GET') {
       bumpAnalytics('visits', 1);
       trackVisitorForAnalytics(visitorId);
+      captureUtmParams(req, res);
     }
   }
   next();
@@ -1393,7 +1433,7 @@ function page(req, title, body, admin = false) {
   const announcement = db.settings.freeShippingEnabled ? 'Free shipping included on every order' : 'Carefully packed and delivered across India';
   const nav = admin ? '' : `<header class="site-header"><div class="announcement-bar"><span>${esc(announcement)}</span><span>Cash on delivery available</span><span>Delivery in 4-5 days</span></div><nav class="nav"><a class="brand" href="/"><img src="${esc(db.settings.logoPath)}" alt="${esc(db.settings.storeName)} logo"><span><strong>${esc(db.settings.storeName)}</strong><small>Artisan chocolates</small></span></a><div class="header-promises"><span><b>Freshly made</b><small>Prepared for your order</small></span><span><b>Delivered carefully</b><small>Usually in 4-5 days</small></span></div><div class="nav-actions"><a class="track-link" href="/track">Track order</a><a class="cart-link" href="/cart"><span>Cart</span><strong>${cartCount}</strong></a></div></nav></header>`;
   const footer = admin ? '' : `<footer class="site-footer"><div class="footer-inner"><a class="footer-brand" href="/"><img src="${esc(db.settings.logoPath)}" alt=""><span><strong>${esc(db.settings.storeName)}</strong><small>Thoughtful gifts, made personal.</small></span></a><div class="footer-links"><a href="/">Shop hamper</a><a href="/track">Track order</a><a href="/privacy-policy">Privacy Policy</a><a href="/terms-and-conditions">Terms and Conditions</a>${whatsappLink}</div><p>Cash on delivery. Carefully packed in India.</p><p>Email: chocomedleyteam@gmail.com &middot; Phone: 7337002088</p></div></footer>`;
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)} | ${esc(db.settings.storeName)}</title><meta name="description" content="Order the Rakhi Chocolate Hamper with custom image, extra almonds, and Cash on Delivery."><meta property="og:title" content="${esc(db.product.name)}"><meta property="og:description" content="${esc(db.product.shortDescription)}"><link rel="stylesheet" href="/assets/styles.css?v=${ASSET_VERSION}"><script defer src="/assets/app.js?v=${ASSET_VERSION}"></script>${admin ? '' : META_PIXEL_HTML}</head><body>${nav}${body}${footer}</body></html>`;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)} | ${esc(db.settings.storeName)}</title><meta name="description" content="Order the Rakhi Chocolate Hamper with custom image, extra almonds, and Cash on Delivery."><meta property="og:title" content="${esc(db.product.name)}"><meta property="og:description" content="${esc(db.product.shortDescription)}"><link rel="stylesheet" href="/assets/styles.css?v=${ASSET_VERSION}"><script defer src="/assets/app.js?v=${ASSET_VERSION}"></script>${admin ? '' : `${META_PIXEL_HTML}${CLARITY_HTML}`}</head><body>${nav}${body}${footer}</body></html>`;
 }
 
 function flash(req, type, message) {
@@ -1666,6 +1706,7 @@ app.post('/checkout', routeRateLimit('checkout', 5, 30 * 60 * 1000), async (req,
       customerNotes: cleanPlainText(req.body.customerNotes).slice(0, 500), adminNotes: '', paymentMethod: 'Cash on Delivery', paymentStatus: 'Pending', orderStatus: 'New Order',
       courier: '', trackingNumber: '', trackingUrl: '', shippingDate: '', estimatedDeliveryDate: '',
       items: JSON.parse(JSON.stringify(items)), subtotal, shippingAmount: ship, couponCode: coupon ? coupon.code : '', discountAmount: discount, total: Math.max(0, subtotal + ship - discount),
+      utm: currentUtm(req) || {},
       statusHistory: [{ status: 'New Order', at: now }]
     };
     db.orders.unshift(order);
@@ -2024,7 +2065,19 @@ app.get('/admin/analytics', requireAdmin, async (req, res) => {
     const abandon = abandonmentRate(r.cartAdds, r.orders);
     return `<tr><td>${esc(r.dateKey)}</td><td>${r.visits}</td><td>${r.uniqueVisitors}</td><td>${r.cartAdds}</td><td>${r.checkoutViews}</td><td>${r.orders}</td><td>${r.thankYouViews}</td><td>${pct(abandon)}</td></tr>`;
   }).join('');
-  const body = `${adminHeading('Insights', 'Visitor & Cart Analytics', 'Track visits, cart abandonment and Thank You page views across your funnel.')}<div class="stats">${stat('Visits Today', today.visits)}${stat('Unique Visitors Today', today.uniqueVisitors, 'Approximate')}${stat('Cart Adds Today', today.cartAdds)}${stat('Thank You Views Today', today.thankYouViews)}</div><div class="stats">${stat('Orders Today', today.orders)}${stat('Cart Abandonment Today', pct(todayAbandon), 'Cart adds that never became an order')}${stat('Cart Abandonment (7 days)', pct(last7Abandon))}${stat('Checkout Views (7 days)', last7.checkoutViews)}</div><section class="admin-section"><div class="admin-section-head"><h2>Last 14 days</h2><span class="muted">Cart adds, checkout views and Thank You views update within a few seconds. Visits update at least every 20 seconds.</span></div><div class="admin-table-wrap"><table><tr><th>Date</th><th>Visits</th><th>Unique Visitors</th><th>Cart Adds</th><th>Checkout Views</th><th>Orders</th><th>Thank You Views</th><th>Abandoned</th></tr>${tableRows}</table></div><p class="muted" style="margin-top:14px">Visits count storefront page loads; Unique Visitors is an approximate daily count from a tracking cookie. Cart Adds counts every "Add to cart" and "Buy now". Abandoned = cart adds that never turned into a placed order.</p></section>`;
+  const sourceCutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const bySource = {};
+  for (const o of db.orders) {
+    if (o.createdAt.slice(0, 10) < sourceCutoff) continue;
+    const label = utmSourceLabel(o.utm);
+    const entry = bySource[label] || (bySource[label] = { orders: 0, revenue: 0 });
+    entry.orders += 1;
+    entry.revenue += o.total;
+  }
+  const sourceRows = Object.entries(bySource).sort((a, b) => b[1].revenue - a[1].revenue)
+    .map(([label, entry]) => `<tr><td>${esc(label)}</td><td>${entry.orders}</td><td>${money(entry.revenue)}</td></tr>`).join('')
+    || '<tr><td colspan="3">No orders in the last 30 days.</td></tr>';
+  const body = `${adminHeading('Insights', 'Visitor & Cart Analytics', 'Track visits, cart abandonment and Thank You page views across your funnel.')}<div class="stats">${stat('Visits Today', today.visits)}${stat('Unique Visitors Today', today.uniqueVisitors, 'Approximate')}${stat('Cart Adds Today', today.cartAdds)}${stat('Thank You Views Today', today.thankYouViews)}</div><div class="stats">${stat('Orders Today', today.orders)}${stat('Cart Abandonment Today', pct(todayAbandon), 'Cart adds that never became an order')}${stat('Cart Abandonment (7 days)', pct(last7Abandon))}${stat('Checkout Views (7 days)', last7.checkoutViews)}</div><section class="admin-section"><div class="admin-section-head"><h2>Last 14 days</h2><span class="muted">Cart adds, checkout views and Thank You views update within a few seconds. Visits update at least every 20 seconds.</span></div><div class="admin-table-wrap"><table><tr><th>Date</th><th>Visits</th><th>Unique Visitors</th><th>Cart Adds</th><th>Checkout Views</th><th>Orders</th><th>Thank You Views</th><th>Abandoned</th></tr>${tableRows}</table></div><p class="muted" style="margin-top:14px">Visits count storefront page loads; Unique Visitors is an approximate daily count from a tracking cookie. Cart Adds counts every "Add to cart" and "Buy now". Abandoned = cart adds that never turned into a placed order.</p></section><section class="admin-section"><div class="admin-section-head"><h2>Revenue by Source (30 days)</h2><span class="muted">Based on utm_source, or Google/Facebook click IDs when present.</span></div><div class="admin-table-wrap"><table><tr><th>Source</th><th>Orders</th><th>Revenue</th></tr>${sourceRows}</table></div><p class="muted" style="margin-top:14px">Source is captured from the URL a customer first lands on (utm_source, utm_medium, utm_campaign, utm_term, utm_content, gclid, fbclid) and remembered for 30 days, so it can be attributed to an order placed later in the same visit or a return visit. Open any order for its full campaign details.</p></section>`;
   res.send(adminPage(req, 'Analytics', body));
 });
 
@@ -2037,7 +2090,7 @@ app.get('/admin/orders', requireAdmin, async (req, res) => {
   const orders = readDb().orders.filter(o => (!q || [o.orderId, o.customerName, o.mobile].some(v => String(v).toLowerCase().includes(q))) && (!status || o.orderStatus === status));
   const cards = orders.map(o => {
     const orderUrl = `/admin/orders/${encodeURIComponent(o.orderId)}`;
-    return `<article class="admin-order-card"><header class="admin-order-head"><div><span class="order-kicker">Order</span><a class="admin-order-id" href="${esc(orderUrl)}">${esc(o.orderId)}</a><time datetime="${esc(o.createdAt)}">${esc(o.createdAt.slice(0, 10))}</time></div><span class="status-pill">${esc(o.orderStatus)}</span></header><div class="admin-order-grid"><div class="admin-order-block"><span class="order-field-label">Uploaded designs</span>${orderUploadPreview(o)}</div><dl class="admin-order-facts"><div><dt>Customer</dt><dd>${esc(o.customerName)}</dd></div><div><dt>Mobile</dt><dd>${esc(o.mobile)}</dd></div></dl><dl class="admin-order-facts"><div><dt>Amount</dt><dd class="order-amount">${money(o.total)}</dd></div><div><dt>Payment</dt><dd>${esc(o.paymentStatus)}</dd></div><div><dt>Tracking</dt><dd>${esc(o.trackingNumber || 'Pending')}</dd></div></dl><div class="admin-order-block admin-order-actions"><span class="order-field-label">Quick update</span><form class="order-status-form" method="post" action="/admin/orders/${esc(o.orderId)}/status">${csrfField(req)}<select name="orderStatus" aria-label="Status for ${esc(o.orderId)}">${statusOptions(o.orderStatus)}</select><div class="order-status-footer">${emailNotifyToggle(o)}<button type="submit" class="btn">Update</button></div></form><a class="order-details-link" href="${esc(orderUrl)}">Open order details</a></div></div></article>`;
+    return `<article class="admin-order-card"><header class="admin-order-head"><div><span class="order-kicker">Order</span><a class="admin-order-id" href="${esc(orderUrl)}">${esc(o.orderId)}</a><time datetime="${esc(o.createdAt)}">${esc(o.createdAt.slice(0, 10))}</time></div><div><span class="admin-status">${esc(utmSourceLabel(o.utm))}</span> <span class="status-pill">${esc(o.orderStatus)}</span></div></header><div class="admin-order-grid"><div class="admin-order-block"><span class="order-field-label">Uploaded designs</span>${orderUploadPreview(o)}</div><dl class="admin-order-facts"><div><dt>Customer</dt><dd>${esc(o.customerName)}</dd></div><div><dt>Mobile</dt><dd>${esc(o.mobile)}</dd></div></dl><dl class="admin-order-facts"><div><dt>Amount</dt><dd class="order-amount">${money(o.total)}</dd></div><div><dt>Payment</dt><dd>${esc(o.paymentStatus)}</dd></div><div><dt>Tracking</dt><dd>${esc(o.trackingNumber || 'Pending')}</dd></div></dl><div class="admin-order-block admin-order-actions"><span class="order-field-label">Quick update</span><form class="order-status-form" method="post" action="/admin/orders/${esc(o.orderId)}/status">${csrfField(req)}<select name="orderStatus" aria-label="Status for ${esc(o.orderId)}">${statusOptions(o.orderStatus)}</select><div class="order-status-footer">${emailNotifyToggle(o)}<button type="submit" class="btn">Update</button></div></form><a class="order-details-link" href="${esc(orderUrl)}">Open order details</a></div></div></article>`;
   }).join('') || '<div class="admin-empty-state"><strong>No orders found</strong><span>Try changing the search or status filter.</span></div>';
   res.send(adminPage(req, 'Orders', `${adminHeading('Fulfilment', 'Orders', 'Manage customer orders, uploaded designs and delivery status.', `<span class="order-total">${orders.length} order${orders.length === 1 ? '' : 's'}</span>`)}<form class="order-filter"><input name="q" aria-label="Search orders" placeholder="Search order, customer, mobile" value="${esc(req.query.q || '')}"><select name="status" aria-label="Filter by status"><option value="">All statuses</option>${statuses.map(s => `<option ${status === s ? 'selected' : ''}>${s}</option>`).join('')}</select><button class="btn">Filter</button></form><div class="orders-list">${cards}</div>`));
 });
@@ -2048,8 +2101,13 @@ app.get('/admin/orders/:orderId', requireAdmin, async (req, res) => {
   if (!order) return res.send(adminPage(req, 'Order Not Found', '<p class="notice error">Order not found.</p>'));
   const items = order.items.map(item => `<h3>${esc(item.productName)} x ${item.quantity}</h3><p><span class="info-label">Base:</span> ${money(item.basePrice)} | <span class="info-label">Line:</span> ${money(item.lineTotal)}</p>${item.customizations.map(c => `<div class="order-customization"><p><span class="info-label">${esc(c.title)}:</span> ${esc(c.value)} (+${money(c.price)})</p></div>`).join('')}`).join('');
   const notifications = (order.emailNotifications || []).slice(0, 4).map(n => `<li><strong>${esc(n.status)}</strong> ${esc(n.result)} ${n.to ? `to ${esc(n.to)}` : ''}<small>${esc(n.at)}</small></li>`).join('') || '<li class="muted">No status emails triggered yet.</li>';
+  const utmLabels = { utm_source: 'Source', utm_medium: 'Medium', utm_campaign: 'Campaign', utm_term: 'Term', utm_content: 'Content', gclid: 'Google Click ID', fbclid: 'Facebook Click ID' };
+  const utmEntries = Object.entries(order.utm || {}).filter(([, value]) => value);
+  const utmHtml = utmEntries.length
+    ? `<dl class="admin-order-facts">${utmEntries.map(([key, value]) => `<div><dt>${esc(utmLabels[key] || key)}</dt><dd>${esc(value)}</dd></div>`).join('')}</dl>`
+    : '<p class="muted">Direct visit — no ad or campaign parameters were present when this customer landed on the site.</p>';
   const form = `<form class="panel grid pad admin-fulfilment-form" method="post" action="/admin/orders/${esc(order.orderId)}" data-admin-form>${csrfField(req)}<h2>Fulfilment</h2><div class="grid two"><label>Order status<select name="orderStatus">${statusOptions(order.orderStatus)}</select></label><label>Payment status<select name="paymentStatus">${['Pending', 'Collected', 'Failed', 'Refunded'].map(s => `<option ${order.paymentStatus === s ? 'selected' : ''}>${s}</option>`).join('')}</select></label></div>${emailNotifyToggle(order, 'Send status email when changed')}<div class="grid two"><label>Courier<input name="courier" value="${esc(order.courier)}" maxlength="80" data-clean="text"></label><label>Tracking number<input name="trackingNumber" value="${esc(order.trackingNumber)}" maxlength="100"></label></div><label>Tracking URL<input type="url" name="trackingUrl" value="${esc(order.trackingUrl)}" placeholder="https://courier.example/track/..."></label><div class="grid two"><label>Shipping date<input type="date" name="shippingDate" value="${esc(order.shippingDate)}"></label><label>Estimated delivery<input type="date" name="estimatedDeliveryDate" value="${esc(order.estimatedDeliveryDate)}"></label></div><label>Admin notes<textarea name="adminNotes" maxlength="1000">${esc(order.adminNotes)}</textarea></label><button type="submit" class="btn primary">Save order</button></form>`;
-  res.send(adminPage(req, order.orderId, `${adminHeading('Order details', order.orderId, `${order.customerName} · ${order.mobile}`, `<span class="status-pill">${esc(order.orderStatus)}</span>`)}<div class="page-grid admin-order-detail"><section class="panel pad"><div class="admin-section-head"><h2>Customer</h2><span class="order-total">${money(order.total)}</span></div><p>${esc(order.customerName)}<br>${esc(order.mobile)}${order.email ? `<br>${esc(order.email)}` : ''}</p><p>${esc(order.addressLine1)}${order.addressLine2 ? `, ${esc(order.addressLine2)}` : ''}<br>${esc(order.city)}, ${esc(order.state)} ${esc(order.pinCode)}</p><section class="uploaded-designs" id="uploaded-designs"><div class="uploaded-designs-head"><div><h2>Uploaded designs</h2><p class="muted">Open a design at full size or download the original file.</p></div><span>${orderUploads(order).length}</span></div>${orderUploadPreview(order, false)}</section><h2>Items</h2>${items}<h2>Pricing</h2>${summary({ subtotal: order.subtotal, shipping: order.shippingAmount, discount: order.discountAmount || 0, couponCode: order.couponCode || '', total: order.total })}</section><div class="grid">${form}<section class="panel pad"><h2>Email delivery</h2>${smtpConfigured() ? '<p class="notice success">SMTP is configured. Status emails can be sent.</p>' : '<p class="notice error">SMTP is not configured. Add SMTP settings in Hostinger before relying on customer emails.</p>'}<ul class="email-log">${notifications}</ul></section></div></div>`));
+  res.send(adminPage(req, order.orderId, `${adminHeading('Order details', order.orderId, `${order.customerName} · ${order.mobile}`, `<span class="status-pill">${esc(order.orderStatus)}</span>`)}<div class="page-grid admin-order-detail"><section class="panel pad"><div class="admin-section-head"><h2>Customer</h2><span class="order-total">${money(order.total)}</span></div><p>${esc(order.customerName)}<br>${esc(order.mobile)}${order.email ? `<br>${esc(order.email)}` : ''}</p><p>${esc(order.addressLine1)}${order.addressLine2 ? `, ${esc(order.addressLine2)}` : ''}<br>${esc(order.city)}, ${esc(order.state)} ${esc(order.pinCode)}</p><section class="uploaded-designs" id="uploaded-designs"><div class="uploaded-designs-head"><div><h2>Uploaded designs</h2><p class="muted">Open a design at full size or download the original file.</p></div><span>${orderUploads(order).length}</span></div>${orderUploadPreview(order, false)}</section><h2>Items</h2>${items}<h2>Pricing</h2>${summary({ subtotal: order.subtotal, shipping: order.shippingAmount, discount: order.discountAmount || 0, couponCode: order.couponCode || '', total: order.total })}<h2>Traffic Source</h2>${utmHtml}</section><div class="grid">${form}<section class="panel pad"><h2>Email delivery</h2>${smtpConfigured() ? '<p class="notice success">SMTP is configured. Status emails can be sent.</p>' : '<p class="notice error">SMTP is not configured. Add SMTP settings in Hostinger before relying on customer emails.</p>'}<ul class="email-log">${notifications}</ul></section></div></div>`));
 });
 
 app.post('/admin/orders/:orderId', requireAdmin, async (req, res) => {
