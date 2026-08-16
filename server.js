@@ -413,6 +413,15 @@ function bumpAnalytics(key, amount = 1) {
   day[key] = (day[key] || 0) + amount;
 }
 
+// Cart adds / checkout views / thank-you views are rare compared to raw page views, so
+// unlike bumpAnalytics() (which relies on the periodic batch in flushAnalytics/start()),
+// these flush right away — an admin checking the dashboard right after a test order
+// shouldn't have to wait out the batch window to see it land.
+function bumpAnalyticsNow(key, amount = 1) {
+  bumpAnalytics(key, amount);
+  flushAnalytics().catch(error => console.error('[analytics] Immediate flush failed:', error.code || error.message));
+}
+
 function trackVisitorForAnalytics(visitorId) {
   const dateKey = todayKey();
   if (dateKey !== dailySeenVisitorsDateKey) {
@@ -1510,7 +1519,7 @@ function addLine(req, files) {
 }
 
 app.post('/cart/add', routeRateLimit('cart-add', 20, 10 * 60 * 1000), upload.any(), (req, res) => {
-  try { assertCsrf(req); cart(req).push(addLine(req, req.files || [])); bumpAnalytics('cartAdds', 1); res.redirect('/?cart=open'); }
+  try { assertCsrf(req); cart(req).push(addLine(req, req.files || [])); bumpAnalyticsNow('cartAdds', 1); res.redirect('/?cart=open'); }
   catch (e) { removeFiles(req.files || []); flash(req, 'error', e.message); res.redirect('/'); }
 });
 
@@ -1520,7 +1529,7 @@ app.post('/buy-now', routeRateLimit('buy-now', 20, 10 * 60 * 1000), upload.any()
     const line = addLine(req, req.files || []);
     cart(req).forEach(item => removeCustomizationUploads(item.customizations));
     req.session.cart = [line];
-    bumpAnalytics('cartAdds', 1);
+    bumpAnalyticsNow('cartAdds', 1);
     res.redirect('/checkout');
   } catch (e) { removeFiles(req.files || []); flash(req, 'error', e.message); res.redirect('/'); }
 });
@@ -1590,7 +1599,7 @@ app.get('/checkout', (req, res) => {
     flash(req, 'error', 'Ordering is temporarily paused. Please contact us on WhatsApp.');
     return res.redirect('/cart');
   }
-  bumpAnalytics('checkoutViews', 1);
+  bumpAnalyticsNow('checkoutViews', 1);
   const totals = cartTotals(req);
   const stateOptions = INDIA_STATES.map(state => `<option value="${esc(state)}">${esc(state)}</option>`).join('');
   const form = `<form class="checkout-form" method="post" action="/checkout" data-once data-checkout-form novalidate>${csrfField(req)}${flashHtml(req)}<section class="checkout-section"><div class="form-section-head"><span>1</span><div><h2>Contact details</h2><p>We use these details only for your order and delivery.</p></div></div><div class="grid two"><label>Full name<input name="customerName" autocomplete="name" maxlength="60" data-clean="person" data-rule="person" required><small class="field-error" data-error-for="customerName"></small></label><label>Mobile number<input name="mobile" inputmode="numeric" autocomplete="tel" maxlength="10" data-clean="digits" data-rule="mobile" required><small class="field-error" data-error-for="mobile"></small></label></div><div class="grid two"><label>Alternate mobile <span class="optional-label">Optional</span><input name="alternateMobile" inputmode="numeric" autocomplete="tel" maxlength="10" data-clean="digits" data-rule="optionalMobile"><small class="field-error" data-error-for="alternateMobile"></small></label><label>Email <span class="optional-label">Optional</span><input type="email" name="email" maxlength="254" autocomplete="email" data-rule="optionalEmail"><small class="field-error" data-error-for="email"></small></label></div></section><section class="checkout-section"><div class="form-section-head"><span>2</span><div><h2>Delivery address</h2><p>Enter the complete address where the hamper should arrive.</p></div></div><label>Address line 1<input name="addressLine1" autocomplete="address-line1" maxlength="180" data-clean="address" data-rule="requiredText" required><small class="field-error" data-error-for="addressLine1"></small></label><label>Address line 2 <span class="optional-label">Optional</span><input name="addressLine2" autocomplete="address-line2" maxlength="180" data-clean="address"></label><div class="grid two"><label>Landmark <span class="optional-label">Optional</span><input name="landmark" maxlength="120" data-clean="address"><small class="field-error" data-error-for="landmark"></small></label><label>PIN code<input name="pinCode" inputmode="numeric" autocomplete="postal-code" maxlength="6" data-clean="digits" data-rule="pin" required><small class="field-error" data-error-for="pinCode"></small></label></div><div class="grid two"><label>City<input name="city" autocomplete="address-level2" maxlength="60" data-clean="person" data-rule="person" required><small class="field-error" data-error-for="city"></small></label><label>State<select name="state" required data-rule="requiredSelect"><option value="">Select state or union territory</option>${stateOptions}</select><small class="field-error" data-error-for="state"></small></label></div><label>Order notes <span class="optional-label">Optional</span><textarea name="customerNotes" maxlength="500" data-clean="address" placeholder="Delivery instructions or a note for our team"></textarea></label></section><div class="payment-choice"><span>Free shipping</span><div><strong>Delivery is included in the price</strong><small>No extra shipping charge will be added at checkout.</small></div></div><div class="payment-choice"><span>Cash on delivery</span><div><strong>Pay when your hamper arrives</strong><small>No online payment is required today.</small></div></div><label class="checkout-consent"><input type="checkbox" name="orderConfirmation" value="1" required data-rule="confirmation"><span><strong>Confirm this cash on delivery order</strong><small>I have checked the delivery details and agree to be contacted about this order.</small></span></label><small class="field-error checkout-consent-error" data-error-for="orderConfirmation"></small><button type="submit" class="btn dark wide checkout-submit" data-loading="Placing order...">Place cash on delivery order</button></form>`;
@@ -1677,7 +1686,7 @@ app.get('/success', (req, res) => {
   const db = readDb();
   const order = db.orders.find(o => o.orderId === req.session.lastOrder);
   if (!order) return res.redirect('/');
-  bumpAnalytics('thankYouViews', 1);
+  bumpAnalyticsNow('thankYouViews', 1);
   const whatsappCard = `<section class="success-support"><div><p class="eyebrow">Stay connected</p><h2>Get delivery updates on WhatsApp</h2><p>Message Chocomedley for tracking help, delivery updates or any change to your order.</p></div>${whatsappCta(db.settings, 'Message us on WhatsApp', `Hi Chocomedley, I placed order ${order.orderId}. Please keep me updated on tracking and delivery.`, 'wide')}</section>`;
   res.send(page(req, 'Order Placed', `<main class="container success-page"><section class="success-hero"><span class="success-mark">✓</span><p class="eyebrow">Order confirmed</p><h1>Thank you, ${esc(order.customerName)}.</h1><p>Your personalised chocolate hamper has been received by our team. We will prepare it carefully and keep you updated.</p><div class="success-order-id"><span>Order ID</span><strong>${esc(order.orderId)}</strong></div></section><section class="success-details"><div><span>Payment</span><strong>Cash on delivery</strong></div><div><span>Order total</span><strong>${money(order.total)}</strong></div><div><span>Updates sent to</span><strong>${esc(order.mobile)}</strong></div></section><div class="success-actions"><a class="btn dark" href="/track">Track your order</a><a class="btn ghost" href="/">Return to shop</a></div>${whatsappCard}</main>`));
 });
@@ -2015,7 +2024,7 @@ app.get('/admin/analytics', requireAdmin, async (req, res) => {
     const abandon = abandonmentRate(r.cartAdds, r.orders);
     return `<tr><td>${esc(r.dateKey)}</td><td>${r.visits}</td><td>${r.uniqueVisitors}</td><td>${r.cartAdds}</td><td>${r.checkoutViews}</td><td>${r.orders}</td><td>${r.thankYouViews}</td><td>${pct(abandon)}</td></tr>`;
   }).join('');
-  const body = `${adminHeading('Insights', 'Visitor & Cart Analytics', 'Track visits, cart abandonment and Thank You page views across your funnel.')}<div class="stats">${stat('Visits Today', today.visits)}${stat('Unique Visitors Today', today.uniqueVisitors, 'Approximate')}${stat('Cart Adds Today', today.cartAdds)}${stat('Thank You Views Today', today.thankYouViews)}</div><div class="stats">${stat('Orders Today', today.orders)}${stat('Cart Abandonment Today', pct(todayAbandon), 'Cart adds that never became an order')}${stat('Cart Abandonment (7 days)', pct(last7Abandon))}${stat('Checkout Views (7 days)', last7.checkoutViews)}</div><section class="admin-section"><div class="admin-section-head"><h2>Last 14 days</h2><span class="muted">Numbers refresh about once a minute.</span></div><div class="admin-table-wrap"><table><tr><th>Date</th><th>Visits</th><th>Unique Visitors</th><th>Cart Adds</th><th>Checkout Views</th><th>Orders</th><th>Thank You Views</th><th>Abandoned</th></tr>${tableRows}</table></div><p class="muted" style="margin-top:14px">Visits count storefront page loads; Unique Visitors is an approximate daily count from a tracking cookie. Cart Adds counts every "Add to cart" and "Buy now". Abandoned = cart adds that never turned into a placed order.</p></section>`;
+  const body = `${adminHeading('Insights', 'Visitor & Cart Analytics', 'Track visits, cart abandonment and Thank You page views across your funnel.')}<div class="stats">${stat('Visits Today', today.visits)}${stat('Unique Visitors Today', today.uniqueVisitors, 'Approximate')}${stat('Cart Adds Today', today.cartAdds)}${stat('Thank You Views Today', today.thankYouViews)}</div><div class="stats">${stat('Orders Today', today.orders)}${stat('Cart Abandonment Today', pct(todayAbandon), 'Cart adds that never became an order')}${stat('Cart Abandonment (7 days)', pct(last7Abandon))}${stat('Checkout Views (7 days)', last7.checkoutViews)}</div><section class="admin-section"><div class="admin-section-head"><h2>Last 14 days</h2><span class="muted">Cart adds, checkout views and Thank You views update within a few seconds. Visits update at least every 20 seconds.</span></div><div class="admin-table-wrap"><table><tr><th>Date</th><th>Visits</th><th>Unique Visitors</th><th>Cart Adds</th><th>Checkout Views</th><th>Orders</th><th>Thank You Views</th><th>Abandoned</th></tr>${tableRows}</table></div><p class="muted" style="margin-top:14px">Visits count storefront page loads; Unique Visitors is an approximate daily count from a tracking cookie. Cart Adds counts every "Add to cart" and "Buy now". Abandoned = cart adds that never turned into a placed order.</p></section>`;
   res.send(adminPage(req, 'Analytics', body));
 });
 
@@ -2467,7 +2476,7 @@ async function start() {
     const poll = setInterval(() => { refreshMysqlCache(); }, 5000);
     poll.unref();
   }
-  const analyticsFlush = setInterval(() => { flushAnalytics(); }, 60000);
+  const analyticsFlush = setInterval(() => { flushAnalytics(); }, 20000);
   analyticsFlush.unref();
   for (const signal of ['SIGTERM', 'SIGINT']) {
     process.on(signal, () => {
