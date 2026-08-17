@@ -132,6 +132,9 @@ function initProduct() {
   document.querySelector('[data-mobile-add]')?.addEventListener('click', () => {
     form.querySelector('button[formaction="/cart/add"]')?.click();
   });
+  document.querySelector('[data-mobile-buy]')?.addEventListener('click', () => {
+    form.querySelector('button[formaction="/buy-now"]')?.click();
+  });
   recalc();
 }
 
@@ -354,6 +357,14 @@ function initVideoBubble() {
   const video = bubble.querySelector('[data-bubble-video]');
   const playBtn = bubble.querySelector('[data-bubble-play]');
   const muteBtn = bubble.querySelector('[data-bubble-mute]');
+  const mutedIcon = muteBtn?.querySelector('[data-icon-muted]');
+  const unmutedIcon = muteBtn?.querySelector('[data-icon-unmuted]');
+  const syncMuteIcons = () => {
+    if (!muteBtn || !video) return;
+    mutedIcon?.classList.toggle('is-hidden', !video.muted);
+    unmutedIcon?.classList.toggle('is-hidden', video.muted);
+    muteBtn.setAttribute('aria-label', video.muted ? 'Turn sound on' : 'Turn sound off');
+  };
   let dismissed = false;
   try { dismissed = sessionStorage.getItem('videoBubbleDismissed') === '1'; } catch (_) { /* storage unavailable */ }
   if (dismissed) return;
@@ -366,19 +377,22 @@ function initVideoBubble() {
   });
   if (frame && video && playBtn) {
     frame.addEventListener('click', () => {
-      if (video.paused) { video.play(); frame.classList.add('is-playing'); }
-      else { video.pause(); frame.classList.remove('is-playing'); }
+      if (video.paused) {
+        video.muted = false;
+        syncMuteIcons();
+        video.play();
+        frame.classList.add('is-playing');
+      } else {
+        video.pause();
+        frame.classList.remove('is-playing');
+      }
     });
   }
   if (muteBtn && video) {
-    const mutedIcon = muteBtn.querySelector('[data-icon-muted]');
-    const unmutedIcon = muteBtn.querySelector('[data-icon-unmuted]');
     muteBtn.addEventListener('click', event => {
       event.stopPropagation();
       video.muted = !video.muted;
-      mutedIcon.classList.toggle('is-hidden', !video.muted);
-      unmutedIcon.classList.toggle('is-hidden', video.muted);
-      muteBtn.setAttribute('aria-label', video.muted ? 'Turn sound on' : 'Turn sound off');
+      syncMuteIcons();
     });
   }
 }
