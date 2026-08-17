@@ -309,6 +309,28 @@ function initStoreActivity() {
   window.setInterval(refresh, 20000);
 }
 
+function initSaleCountdown() {
+  const bars = document.querySelectorAll('[data-sale-countdown]');
+  if (!bars.length) return;
+  const tick = () => {
+    bars.forEach(bar => {
+      const endsAt = new Date(bar.dataset.ends).getTime();
+      const remaining = endsAt - Date.now();
+      const timerEl = bar.querySelector('[data-sale-timer]');
+      if (remaining <= 0) {
+        bar.remove();
+        return;
+      }
+      const hours = Math.floor(remaining / 3600000);
+      const minutes = Math.floor((remaining % 3600000) / 60000);
+      const seconds = Math.floor((remaining % 60000) / 1000);
+      if (timerEl) timerEl.textContent = `${String(hours).padStart(2, '0')}h ${String(minutes).padStart(2, '0')}m ${String(seconds).padStart(2, '0')}s`;
+    });
+  };
+  tick();
+  window.setInterval(tick, 1000);
+}
+
 const adminRules = {
   name: input => /^[\p{L}][\p{L}\s]{1,79}$/u.test(input.value.trim()) ? '' : 'Use letters only.',
   text: input => !input.value.trim() || input.value.trim().length >= 4 ? '' : 'Enter at least 4 characters.',
@@ -369,4 +391,5 @@ document.addEventListener('DOMContentLoaded', () => {
   initCheckout();
   initAdminValidation();
   initStoreActivity();
+  initSaleCountdown();
 });

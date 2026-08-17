@@ -126,10 +126,11 @@ const LOG_DIR = ensureWritableDir('LOG_DIR', [
 ]);
 const DB_FILE = path.join(DATA_DIR, 'store.json');
 const PRODUCT_IMAGES = [
-  '/img/WhatsApp Image 2026-08-11 at 7.32.16 PM.jpeg',
-  '/img/WhatsApp Image 2026-08-11 at 7.36.53 PM.jpeg',
-  '/img/WhatsApp Image 2026-08-11 at 7.49.51 PM.jpeg',
-  '/img/WhatsApp Image 2026-08-11 at 7.56.50 PM.jpeg'
+  '/img/1.jpeg',
+  '/img/2.jpeg',
+  '/img/3.jpeg',
+  '/img/4.jpeg',
+  '/img/5.jpeg'
 ];
 const ASSET_VERSION = 'launch-20260814-04';
 const META_PIXEL_ID = '28093024957051220';
@@ -562,7 +563,9 @@ function seed() {
       freeShippingEnabled: true,
       freeShippingMinimum: 0,
       codEnabled: true,
-      deliveryText: 'Freshly prepared and usually delivered in 4-5 days.'
+      deliveryText: 'Freshly prepared and usually delivered in 4-5 days.',
+      saleLabel: 'Rakshabandhan Sale',
+      saleEndsAt: endOfTodayIstIso()
     },
     product: {
       id: 1,
@@ -576,6 +579,9 @@ function seed() {
       galleryPaths: PRODUCT_IMAGES,
       active: true,
       codAvailable: true,
+      stockLeft: 14,
+      stockTotal: 40,
+      ratingValue: 4.7,
       deliveryText: 'Delivered in 4-5 days.',
       details: 'A premium personalized chocolate hamper with photo-printed chocolates, gift-ready packaging, and a refined handmade finish. Built for birthdays, Rakhi, celebrations, return gifts, and thoughtful personal gifting.',
       ingredients: 'Milk chocolate, cocoa solids, sugar, cocoa butter, almonds when selected, and permitted food-grade colors. Contains dairy and may contain traces of nuts.',
@@ -875,6 +881,11 @@ function readDb() {
     data.product.imagePath = PRODUCT_IMAGES[0];
     changed = true;
   }
+  if (String(data.product.imagePath || '').includes('WhatsApp Image') || (data.product.galleryPaths || []).some(value => String(value || '').includes('WhatsApp Image'))) {
+    data.product.imagePath = PRODUCT_IMAGES[0];
+    data.product.galleryPaths = PRODUCT_IMAGES;
+    changed = true;
+  }
   const ensureOption = option => {
     if (!data.options.some(existing => existing.id === option.id || existing.title === option.title)) {
       data.options.push(option);
@@ -921,6 +932,30 @@ function readDb() {
       changed = true;
     }
   });
+  if (!Number.isFinite(Number(data.product.stockTotal)) || Number(data.product.stockTotal) <= 0) {
+    data.product.stockTotal = seeded.stockTotal;
+    changed = true;
+  }
+  if (!Number.isFinite(Number(data.product.stockLeft)) || Number(data.product.stockLeft) < 0) {
+    data.product.stockLeft = seeded.stockLeft;
+    changed = true;
+  }
+  if (Number(data.product.stockLeft) > Number(data.product.stockTotal)) {
+    data.product.stockLeft = Number(data.product.stockTotal);
+    changed = true;
+  }
+  if (!Number.isFinite(Number(data.product.ratingValue)) || Number(data.product.ratingValue) <= 0 || Number(data.product.ratingValue) > 5) {
+    data.product.ratingValue = seeded.ratingValue;
+    changed = true;
+  }
+  if (!data.settings.saleLabel) {
+    data.settings.saleLabel = 'Rakshabandhan Sale';
+    changed = true;
+  }
+  if (!data.settings.saleEndsAt) {
+    data.settings.saleEndsAt = endOfTodayIstIso();
+    changed = true;
+  }
   const nextOrderFromExisting = Math.max(
     10001,
     ...(data.orders || []).map(order => {
@@ -957,6 +992,52 @@ function hasValidOffer(product) {
   const base = Number(product.basePrice || 0);
   const offer = Number(product.offerPrice || 0);
   return offer > 0 && offer < base;
+}
+
+function estimatedDeliveryWindow(now = new Date()) {
+  const fmt = date => date.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'Asia/Kolkata' });
+  const start = new Date(now.getTime() + 4 * 24 * 60 * 60 * 1000);
+  const end = new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000);
+  return { startLabel: fmt(start), endLabel: fmt(end) };
+}
+
+function stockStatus(product) {
+  const total = Math.max(1, Number(product.stockTotal || 0));
+  const left = Math.max(0, Math.min(total, Number(product.stockLeft ?? total)));
+  const percent = Math.max(4, Math.round((left / total) * 100));
+  return { left, total, percent, low: left <= Math.max(3, Math.round(total * 0.25)) };
+}
+
+function endOfTodayIstIso(now = new Date()) {
+  const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
+  return `${day}T23:59:59+05:30`;
+}
+
+function istDatetimeLocalValue(isoString) {
+  const date = new Date(isoString);
+  if (Number.isNaN(date.getTime())) return '';
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(date);
+  const get = type => parts.find(p => p.type === type)?.value || '00';
+  return `${get('year')}-${get('month')}-${get('day')}T${get('hour')}:${get('minute')}`;
+}
+
+function parseIstDatetimeLocal(value, fallback) {
+  const trimmed = String(value || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(trimmed)) return fallback;
+  const iso = `${trimmed}:00+05:30`;
+  return Number.isNaN(new Date(iso).getTime()) ? fallback : iso;
+}
+
+function renderSaleBar(sale, variant = 'bar') {
+  const cls = variant === 'panel' ? 'sale-panel' : 'sale-bar';
+  return '<div class="' + cls + '" data-sale-countdown data-ends="' + esc(sale.endsAtIso) + '"><span class="sale-label">&#127881; ' + esc(sale.label) + ' is live</span><span class="sale-timer">Ends in <b data-sale-timer>&hellip;</b></span></div>';
+}
+
+function activeSale(db) {
+  const label = String(db.settings.saleLabel || '').trim();
+  const endsAt = db.settings.saleEndsAt ? new Date(db.settings.saleEndsAt) : null;
+  const active = Boolean(label) && hasValidOffer(db.product) && endsAt && !Number.isNaN(endsAt.getTime()) && endsAt.getTime() > Date.now();
+  return { active, label, endsAtIso: endsAt && !Number.isNaN(endsAt.getTime()) ? endsAt.toISOString() : '' };
 }
 
 function esc(value = '') {
@@ -1431,7 +1512,9 @@ function page(req, title, body, admin = false) {
   const whatsapp = whatsappUrl(db.settings, 'Hi Chocomedley, I need help with an order.');
   const whatsappLink = whatsapp ? `<a class="support-link" href="${esc(whatsapp)}" target="_blank" rel="noopener">WhatsApp</a>` : '';
   const announcement = db.settings.freeShippingEnabled ? 'Free shipping included on every order' : 'Carefully packed and delivered across India';
-  const nav = admin ? '' : `<header class="site-header"><div class="announcement-bar"><span>${esc(announcement)}</span><span>Cash on delivery available</span><span>Delivery in 4-5 days</span></div><nav class="nav"><a class="brand" href="/"><img src="${esc(db.settings.logoPath)}" alt="${esc(db.settings.storeName)} logo"><span><strong>${esc(db.settings.storeName)}</strong><small>Artisan chocolates</small></span></a><div class="header-promises"><span><b>Freshly made</b><small>Prepared for your order</small></span><span><b>Delivered carefully</b><small>Usually in 4-5 days</small></span></div><div class="nav-actions"><a class="track-link" href="/track">Track order</a><a class="cart-link" href="/cart"><span>Cart</span><strong>${cartCount}</strong></a></div></nav></header>`;
+  const sale = activeSale(db);
+  const saleBarHtml = sale.active ? renderSaleBar(sale) : '';
+  const nav = admin ? '' : `<header class="site-header">${saleBarHtml}<div class="announcement-bar"><span>${esc(announcement)}</span><span>Cash on delivery available</span><span>Delivery in 4-5 days</span></div><nav class="nav"><a class="brand" href="/"><img src="${esc(db.settings.logoPath)}" alt="${esc(db.settings.storeName)} logo"><span><strong>${esc(db.settings.storeName)}</strong><small>Artisan chocolates</small></span></a><div class="header-promises"><span><b>Freshly made</b><small>Prepared for your order</small></span><span><b>Delivered carefully</b><small>Usually in 4-5 days</small></span></div><div class="nav-actions"><a class="track-link" href="/track">Track order</a><a class="cart-link" href="/cart"><span>Cart</span><strong>${cartCount}</strong></a></div></nav></header>`;
   const footer = admin ? '' : `<footer class="site-footer"><div class="footer-inner"><a class="footer-brand" href="/"><img src="${esc(db.settings.logoPath)}" alt=""><span><strong>${esc(db.settings.storeName)}</strong><small>Thoughtful gifts, made personal.</small></span></a><div class="footer-links"><a href="/">Shop hamper</a><a href="/track">Track order</a><a href="/privacy-policy">Privacy Policy</a><a href="/terms-and-conditions">Terms and Conditions</a>${whatsappLink}</div><p>Cash on delivery. Carefully packed in India.</p><p>Email: chocomedleyteam@gmail.com &middot; Phone: 7337002088</p></div></footer>`;
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(title)} | ${esc(db.settings.storeName)}</title><meta name="description" content="Order the Rakhi Chocolate Hamper with custom image, extra almonds, and Cash on Delivery."><meta property="og:title" content="${esc(db.product.name)}"><meta property="og:description" content="${esc(db.product.shortDescription)}"><link rel="stylesheet" href="/assets/styles.css?v=${ASSET_VERSION}"><script defer src="/assets/app.js?v=${ASSET_VERSION}"></script>${admin ? '' : `${META_PIXEL_HTML}${CLARITY_HTML}`}</head><body>${nav}${body}${footer}</body></html>`;
 }
@@ -1488,7 +1571,13 @@ app.get('/', (req, res) => {
   const gallery = [db.product.imagePath, ...(db.product.galleryPaths || [])].filter(Boolean).filter((value, index, arr) => arr.indexOf(value) === index);
   const thumbs = gallery.map((src, index) => `<button type="button" data-thumb data-src="${esc(src)}" aria-label="View image ${index + 1}"><img src="${esc(src)}" alt="${esc(db.product.name)} view ${index + 1}"></button>`).join('');
   const activity = storefrontActivity(db);
-  const body = `<main class="storefront">${flashHtml(req)}<section class="product-section"><div class="product-shell"><div class="product-media"><div class="gallery-main"><span class="gallery-badge">Personalised for you</span><button class="gallery-arrow" type="button" data-gallery-prev aria-label="Previous image">‹</button><img data-main-image src="${esc(gallery[0])}" alt="${esc(db.product.name)}"><button class="gallery-arrow next" type="button" data-gallery-next aria-label="Next image">›</button></div><div class="thumbs">${thumbs}</div><div class="media-assurance"><span><b>Photo-ready print</b><small>Clear, colour-accurate finish</small></span><span><b>Gift-safe packaging</b><small>Packed to arrive beautifully</small></span></div></div><form class="product-panel configurator premium-configurator" method="post" action="/cart/add" enctype="multipart/form-data" data-product-form data-base-price="${base}" data-shipping="${shipping(db.settings, base)}">${csrfField(req)}<div class="product-title-block"><span class="panel-kicker">Personalised chocolate hamper</span><h1>${esc(db.product.name)}</h1><div class="pack-line">Pack of 9 handmade chocolates</div><div class="rating-line"><strong>Made fresh for gifting</strong><small>Personalised for every order</small></div><p>${esc(db.product.shortDescription)}</p><div class="activity-row" data-store-activity aria-live="polite"><span class="activity-item"><i></i><b data-recent-orders>${activity.recentOrders}</b> <span data-order-label>${activity.recentOrders === 1 ? 'order' : 'orders'}</span> placed in 48 hours</span><span class="activity-item"><i></i><b data-active-visitors>${activity.activeVisitors}</b> browsing now</span></div><div class="mini-trust"><span>Cash on delivery</span><span>Delivery in 4-5 days</span><span>Freshly made for you</span></div></div>${priceHtml}<div class="config-stack"><section class="config-option premium-option quantity-option"><div class="config-head"><div><span class="config-label">Quantity</span><p>How many hampers would you like?</p></div></div><span class="qty premium-qty"><button type="button" data-qty="-1" aria-label="Decrease quantity">-</button><input name="quantity" value="1" readonly aria-label="Quantity"><button type="button" data-qty="1" aria-label="Increase quantity">+</button></span></section>${activeOptions(db).map(optionField).join('')}</div><div class="checkout-dock"><div class="total-row"><span>Order total</span><strong data-live-total>${money(initialTotal)}</strong></div><div class="actions"><button type="submit" class="btn primary" formaction="/cart/add">Add to cart</button><button type="submit" class="btn dark" formaction="/buy-now">Buy now</button></div><p class="purchase-note">No online payment required. Pay when your order arrives.</p><div class="breakdown" data-breakdown></div></div></form></div></section>${bottomContent(db)}</main>${cartDrawer(req, req.query.cart === 'open')}<div class="mobile-bar"><div><small>Order total</small><strong data-live-total>${money(initialTotal)}</strong></div><button type="button" class="btn primary" data-mobile-add>Add to cart</button></div>`;
+  const eta = estimatedDeliveryWindow();
+  const stock = stockStatus(db.product);
+  const sale = activeSale(db);
+  const salePanelHtml = sale.active ? renderSaleBar(sale, 'panel') : '';
+  const etaHtml = `<div class="eta-banner"><span class="eta-icon" aria-hidden="true">&#128666;</span><div><strong>Get it by ${esc(eta.startLabel)} &ndash; ${esc(eta.endLabel)}</strong><small>If you order today &middot; Cash on delivery</small></div></div>`;
+  const stockHtml = `<div class="stock-meter${stock.low ? ' is-low' : ''}"><div class="stock-meter-head"><span>${stock.left <= 0 ? 'Sold out for today&rsquo;s batch' : `Only <b>${stock.left}</b> left in today&rsquo;s batch`}</span><small>${stock.left}/${stock.total}</small></div><div class="stock-track"><div class="stock-fill" style="width:${stock.percent}%"></div></div></div>`;
+  const body = `<main class="storefront">${flashHtml(req)}<section class="product-section"><div class="product-shell"><div class="product-media"><div class="gallery-main"><span class="gallery-badge">Personalised for you</span><button class="gallery-arrow" type="button" data-gallery-prev aria-label="Previous image">‹</button><img data-main-image src="${esc(gallery[0])}" alt="${esc(db.product.name)}"><button class="gallery-arrow next" type="button" data-gallery-next aria-label="Next image">›</button></div><div class="thumbs">${thumbs}</div><div class="media-assurance"><span><b>Photo-ready print</b><small>Clear, colour-accurate finish</small></span><span><b>Gift-safe packaging</b><small>Packed to arrive beautifully</small></span></div></div><form class="product-panel configurator premium-configurator" method="post" action="/cart/add" enctype="multipart/form-data" data-product-form data-base-price="${base}" data-shipping="${shipping(db.settings, base)}">${csrfField(req)}<div class="product-title-block"><span class="panel-kicker">Personalised chocolate hamper</span><h1>${esc(db.product.name)}</h1><div class="pack-line">Pack of 9 handmade chocolates</div><div class="rating-line"><strong>Made fresh for gifting</strong><small>Personalised for every order</small></div><p>${esc(db.product.shortDescription)}</p><div class="activity-row" data-store-activity aria-live="polite"><span class="activity-item"><i></i><b data-recent-orders>${activity.recentOrders}</b> <span data-order-label>${activity.recentOrders === 1 ? 'order' : 'orders'}</span> placed in 48 hours</span><span class="activity-item"><i></i><b data-active-visitors>${activity.activeVisitors}</b> browsing now</span></div><div class="mini-trust"><span>Cash on delivery</span><span>Delivery in 4-5 days</span><span>Freshly made for you</span></div></div>${salePanelHtml}${priceHtml}${etaHtml}${stockHtml}<div class="config-stack"><section class="config-option premium-option quantity-option"><div class="config-head"><div><span class="config-label">Quantity</span><p>How many hampers would you like?</p></div></div><span class="qty premium-qty"><button type="button" data-qty="-1" aria-label="Decrease quantity">-</button><input name="quantity" value="1" readonly aria-label="Quantity"><button type="button" data-qty="1" aria-label="Increase quantity">+</button></span></section>${activeOptions(db).map(optionField).join('')}</div><div class="checkout-dock"><div class="total-row"><span>Order total</span><strong data-live-total>${money(initialTotal)}</strong></div><div class="actions"><button type="submit" class="btn primary" formaction="/cart/add">Add to cart</button><button type="submit" class="btn dark" formaction="/buy-now">Buy now</button></div><p class="purchase-note">No online payment required. Pay when your order arrives.</p><div class="breakdown" data-breakdown></div></div></form></div></section>${bottomContent(db)}</main>${cartDrawer(req, req.query.cart === 'open')}<div class="mobile-bar"><div><small>Order total</small><strong data-live-total>${money(initialTotal)}</strong></div><button type="button" class="btn primary" data-mobile-add>Add to cart</button></div>`;
   res.send(page(req, db.product.name, body));
 });
 
@@ -1499,12 +1588,19 @@ function cartDrawer(req, open = false) {
   return `<aside class="cart-drawer ${open ? 'is-open' : ''}" aria-label="Cart"><a class="drawer-scrim" href="/"></a><div class="drawer-panel"><div class="drawer-head"><div><p class="eyebrow">Your selection</p><h2>Shopping cart</h2></div><a href="/" aria-label="Close cart">×</a></div><div class="drawer-lines">${empty}</div><div class="drawer-total"><span>Order total</span><strong>${money(totals.total)}</strong></div><a class="btn dark" href="/checkout">Continue to checkout</a><a class="drawer-continue" href="/">Add another hamper</a><p class="drawer-assurance">Cash on delivery available. Your photos remain private and are used only for your order.</p></div></aside>`;
 }
 
+function reviewsSection(db) {
+  const rating = Number(db.product.ratingValue || 4.7);
+  const fullStars = Math.round(rating);
+  const stars = '&#9733;'.repeat(fullStars) + '&#9734;'.repeat(5 - fullStars);
+  return '<section class="reviews-band"><div class="reviews-summary"><div class="reviews-score"><strong>' + esc(rating.toFixed(1)) + '</strong><span class="reviews-stars" aria-hidden="true">' + stars + '</span></div><div><p class="eyebrow">Customer rating</p><h3>Loved by our Rakhi gifting customers</h3><p>Real customer stories and photos are being added this week &mdash; check back soon.</p></div></div><div class="reviews-trust-grid"><div><b>Handmade in small batches</b><small>Fresh for every order, not mass-produced</small></div><div><b>Personalised for the receiver</b><small>Your photo, printed on the chocolate</small></div><div><b>Pay on delivery</b><small>No online payment required</small></div></div></section>';
+}
+
 function bottomContent(db) {
   const faqs = String(db.product.faq || '').split(/\r?\n/).map(line => {
     const [q, ...rest] = line.split('|');
     return q && rest.length ? `<details><summary>${esc(q)}</summary><p>${esc(rest.join('|'))}</p></details>` : '';
   }).join('');
-  return `<section class="trust-band"><div><span>01</span><strong>Choose your hamper</strong><small>Select quantity and add-ons</small></div><div><span>02</span><strong>Add your photos</strong><small>Upload one design per hamper</small></div><div><span>03</span><strong>We make it personal</strong><small>Printed, packed and dispatched</small></div></section><section id="details" class="content-bands"><header class="section-heading"><p class="eyebrow">The Chocomedley difference</p><h2>A gift that feels considered from the first look.</h2><p>Every hamper is prepared for the person receiving it, with handmade chocolate, a personal photograph and presentation worthy of the occasion.</p></header><div class="detail-grid"><article><span>01</span><p class="eyebrow">Product details</p><h3>Made to feel personal.</h3><p>${esc(db.product.details)}</p></article><article><span>02</span><p class="eyebrow">Ingredients</p><h3>Rich, handmade, carefully packed.</h3><p>${esc(db.product.ingredients)}</p></article><article><span>03</span><p class="eyebrow">Care</p><h3>Keep every bite fresh and delicious.</h3><p>${esc(db.product.care)}</p></article></div><div class="faq-block"><div class="faq-heading"><div><p class="eyebrow">Questions, answered</p><h2>Before you order</h2></div><p>Everything you need to know about personalisation, delivery and storage.</p></div>${faqs}</div></section>`;
+  return `<section class="trust-band"><div><span>01</span><strong>Choose your hamper</strong><small>Select quantity and add-ons</small></div><div><span>02</span><strong>Add your photos</strong><small>Upload one design per hamper</small></div><div><span>03</span><strong>We make it personal</strong><small>Printed, packed and dispatched</small></div></section>${reviewsSection(db)}<section id="details" class="content-bands"><header class="section-heading"><p class="eyebrow">The Chocomedley difference</p><h2>A gift that feels considered from the first look.</h2><p>Every hamper is prepared for the person receiving it, with handmade chocolate, a personal photograph and presentation worthy of the occasion.</p></header><div class="detail-grid"><article><span>01</span><p class="eyebrow">Product details</p><h3>Made to feel personal.</h3><p>${esc(db.product.details)}</p></article><article><span>02</span><p class="eyebrow">Ingredients</p><h3>Rich, handmade, carefully packed.</h3><p>${esc(db.product.ingredients)}</p></article><article><span>03</span><p class="eyebrow">Care</p><h3>Keep every bite fresh and delicious.</h3><p>${esc(db.product.care)}</p></article></div><div class="faq-block"><div class="faq-heading"><div><p class="eyebrow">Questions, answered</p><h2>Before you order</h2></div><p>Everything you need to know about personalisation, delivery and storage.</p></div>${faqs}</div></section>`;
 }
 
 function selectedCustomizations(req, files, db) {
@@ -2223,7 +2319,7 @@ app.get('/admin/product', requireAdmin, (req, res) => {
   const pricing = `<div class="admin-pricing-note"><strong>Prices include free shipping.</strong><span>The amount entered here is the final customer-facing product price before optional add-ons.</span></div><div class="admin-fields two"><label>Base price <span class="field-hint">Shipping included</span><span class="admin-money-input"><b>₹</b><input name="basePrice" value="${esc(p.basePrice)}" inputmode="decimal" maxlength="10" data-clean="decimal" data-admin-rule="positiveMoney" required></span><small class="field-error" data-error-for="basePrice"></small></label><label>Offer price <span class="field-hint">Leave blank for no discount</span><span class="admin-money-input"><b>₹</b><input name="offerPrice" value="${esc(p.offerPrice)}" inputmode="decimal" maxlength="10" data-clean="decimal" data-admin-rule="optionalMoney"></span><small class="field-error" data-error-for="offerPrice"></small></label></div>`;
   const media = `<div class="admin-media-grid"><div class="admin-media-preview"><span class="admin-field-label">Current main image</span>${p.imagePath ? `<img class="admin-image-preview" src="${esc(p.imagePath)}" alt="Current main product image">` : '<div class="admin-empty-media">No image selected</div>'}</div><div class="admin-fields"><label>Replace main image <span class="field-hint">JPG, PNG or WEBP · 5 MB maximum</span><input type="file" name="imageUpload" accept="image/jpeg,image/png,image/webp"></label><label>Or use an image path<input name="imagePath" value="${esc(p.imagePath)}" data-admin-rule="imagePath" placeholder="/img/example.jpeg"><small class="field-error" data-error-for="imagePath"></small></label></div></div><div class="admin-gallery-block"><div class="admin-card-subhead"><div><h3>Gallery</h3><p>These images appear as selectable product views.</p></div><span>${(p.galleryPaths || []).length} images</span></div><div class="admin-gallery-preview">${galleryPreview || '<p class="muted">No gallery images added.</p>'}</div><div class="admin-fields two"><label>Add gallery images <span class="field-hint">Up to 12 images</span><input type="file" name="galleryUploads" accept="image/jpeg,image/png,image/webp" multiple></label><label>Gallery paths <span class="field-hint">One /img/ or /catalog/ path per line</span><textarea name="galleryPaths" data-admin-rule="imagePaths">${esc((p.galleryPaths || []).join('\n'))}</textarea><small class="field-error" data-error-for="galleryPaths"></small></label></div></div>`;
   const content = `<div class="admin-fields"><label>Delivery promise<input name="deliveryText" value="${esc(p.deliveryText)}" maxlength="180" data-clean="text" data-admin-rule="requiredText" required><small class="field-error" data-error-for="deliveryText"></small></label><label>Product details<textarea name="details" maxlength="1200" data-clean="text" data-admin-rule="requiredText" required>${esc(p.details || '')}</textarea><small class="field-error" data-error-for="details"></small></label><label>Ingredients and allergens<textarea name="ingredients" maxlength="1200" data-clean="text" data-admin-rule="requiredText" required>${esc(p.ingredients || '')}</textarea><small class="field-error" data-error-for="ingredients"></small></label><label>Care and storage<textarea name="care" maxlength="800" data-clean="text" data-admin-rule="requiredText" required>${esc(p.care || '')}</textarea><small class="field-error" data-error-for="care"></small></label><label>FAQs <span class="field-hint">One per line as Question|Answer</span><textarea name="faq" data-admin-rule="faq" required>${esc(p.faq || '')}</textarea><small class="field-error" data-error-for="faq"></small></label></div>`;
-  const availability = `<div class="admin-toggle-grid">${adminToggle('active', 'Product available', 'Show this product and allow customers to order it.', p.active)}${adminToggle('codAvailable', 'Cash on delivery', 'Allow COD for this product when store-level COD is enabled.', p.codAvailable)}</div>`;
+  const availability = `<div class="admin-toggle-grid">${adminToggle('active', 'Product available', 'Show this product and allow customers to order it.', p.active)}${adminToggle('codAvailable', 'Cash on delivery', 'Allow COD for this product when store-level COD is enabled.', p.codAvailable)}</div><div class="admin-fields two" style="margin-top:16px"><label>Stock left <span class="field-hint">Shown on the storefront as "Only X left"</span><input name="stockLeft" value="${esc(p.stockLeft)}" inputmode="numeric" maxlength="6" data-clean="digits"><small class="field-error" data-error-for="stockLeft"></small></label><label>Batch size <span class="field-hint">Total the stock bar is measured against</span><input name="stockTotal" value="${esc(p.stockTotal)}" inputmode="numeric" maxlength="6" data-clean="digits"><small class="field-error" data-error-for="stockTotal"></small></label></div>`;
   const form = `<form class="admin-form" method="post" action="/admin/product" enctype="multipart/form-data" data-admin-form>${csrfField(req)}${adminFormSection('01', 'Product information', 'Clear customer-facing title and descriptions.', basics)}${adminFormSection('02', 'Pricing', 'Set the regular price and optional discounted price.', pricing)}${adminFormSection('03', 'Product media', 'Manage the main image and product gallery.', media)}${adminFormSection('04', 'Customer information', 'Delivery, contents, allergens, care instructions and FAQs.', content)}${adminFormSection('05', 'Availability', 'Control whether customers can order and pay on delivery.', availability)}<div class="admin-save-bar"><div><strong>Ready to publish?</strong><span>Changes update the live storefront immediately after saving.</span></div><button type="submit" class="btn primary" data-loading="Saving product...">Save product</button></div></form>`;
   res.send(adminPage(req, 'Product', `${adminHeading('Catalogue', 'Product', 'Manage the product customers see and order.', '<a class="btn ghost" href="/" target="_blank" rel="noopener">Preview storefront</a>')}${form}`));
 });
@@ -2247,11 +2343,13 @@ app.post('/admin/product', requireAdmin, productUpload.fields([{ name: 'imageUpl
     const offerPrice = parseMoneyField(req.body.offerPrice, 'Offer Price');
     if (basePrice <= 0) throw new Error('Base Price must be greater than zero.');
     if (offerPrice && offerPrice >= basePrice) throw new Error('Offer Price must be lower than Base Price. Leave it blank when there is no discount.');
+    const stockTotal = Math.max(1, parseWholeNumberField(req.body.stockTotal, 'Batch size', db.product.stockTotal || 40));
+    const stockLeft = Math.min(stockTotal, parseWholeNumberField(req.body.stockLeft, 'Stock left', db.product.stockLeft || 0));
     const imagePath = uploadedPublicPath(mainUpload) || validatePublicPath(req.body.imagePath || db.product.imagePath, 'Main Image');
     const galleryPaths = [...typedGallery, ...uploadedGallery].filter((value, index, arr) => arr.indexOf(value) === index).slice(0, 12);
     if (!galleryPaths.length && Array.isArray(db.product.galleryPaths)) galleryPaths.push(...db.product.galleryPaths.filter(Boolean).slice(0, 12));
     if (!galleryPaths.length) throw new Error('Add at least one gallery image.');
-    Object.assign(db.product, { name, shortDescription: requireLength(req.body.shortDescription, 'Short Description', 4, 240), longDescription: requireLength(req.body.longDescription, 'Long Description', 4, 1200), basePrice, offerPrice, imagePath, galleryPaths, active: Boolean(req.body.active), codAvailable: Boolean(req.body.codAvailable), deliveryText: requireLength(req.body.deliveryText, 'Delivery Text', 4, 180), details: requireLength(req.body.details, 'Product Details', 4, 1200), ingredients: requireLength(req.body.ingredients, 'Ingredients', 4, 1200), care: requireLength(req.body.care, 'Care / Storage', 4, 800), faq: parseFaq(req.body.faq) });
+    Object.assign(db.product, { name, shortDescription: requireLength(req.body.shortDescription, 'Short Description', 4, 240), longDescription: requireLength(req.body.longDescription, 'Long Description', 4, 1200), basePrice, offerPrice, imagePath, galleryPaths, active: Boolean(req.body.active), codAvailable: Boolean(req.body.codAvailable), stockLeft, stockTotal, deliveryText: requireLength(req.body.deliveryText, 'Delivery Text', 4, 180), details: requireLength(req.body.details, 'Product Details', 4, 1200), ingredients: requireLength(req.body.ingredients, 'Ingredients', 4, 1200), care: requireLength(req.body.care, 'Care / Storage', 4, 800), faq: parseFaq(req.body.faq) });
     await writeDb(db);
     flash(req, 'success', 'Product updated.');
   } catch (e) {
@@ -2374,9 +2472,10 @@ app.get('/admin/settings', requireAdmin, (req, res) => {
   const identity = `<div class="admin-media-grid settings-identity"><div class="admin-media-preview"><span class="admin-field-label">Current logo</span><img class="admin-logo-preview" src="${esc(s.logoPath)}" alt="Current store logo"></div><div class="admin-fields"><label>Store name<input name="storeName" value="${esc(s.storeName)}" maxlength="80" data-clean="name" data-admin-rule="name" required><small class="field-error" data-error-for="storeName"></small></label><label>Logo path<input name="logoPath" value="${esc(s.logoPath)}" data-admin-rule="imagePath" required><small class="field-error" data-error-for="logoPath"></small></label></div></div>`;
   const support = `<div class="admin-fields two"><label>Contact phone<input name="contactPhone" value="${esc(s.contactPhone)}" data-clean="phone" data-admin-rule="phone" inputmode="tel" autocomplete="tel" required><small class="field-error" data-error-for="contactPhone"></small></label><label>WhatsApp number<input name="whatsappNumber" value="${esc(s.whatsappNumber)}" data-clean="phone" data-admin-rule="phone" inputmode="tel" required><small class="field-error" data-error-for="whatsappNumber"></small></label></div><div class="admin-fields"><label>Support email<input type="email" name="supportEmail" value="${esc(s.supportEmail)}" maxlength="254" data-admin-rule="email" required><small class="field-error" data-error-for="supportEmail"></small></label><label>Store address<textarea name="storeAddress" maxlength="400" data-clean="text" data-admin-rule="requiredText" required>${esc(s.storeAddress)}</textarea><small class="field-error" data-error-for="storeAddress"></small></label></div>`;
   const delivery = `<div class="admin-pricing-note"><strong>Free shipping is included in product prices.</strong><span>Customers will not see or pay a separate shipping fee at cart or checkout.</span></div><input type="hidden" name="shippingFee" value="0"><input type="hidden" name="freeShippingMinimum" value="0"><div class="admin-fields"><label>Delivery promise<input name="deliveryText" value="${esc(s.deliveryText)}" maxlength="180" data-clean="text" data-admin-rule="requiredText" required><small class="field-error" data-error-for="deliveryText"></small></label></div><div class="admin-toggle-grid">${adminToggle('codEnabled', 'Accept cash on delivery orders', 'This store currently uses COD as its checkout payment method.', s.codEnabled)}</div>`;
+  const promotions = '<div class="admin-pricing-note"><strong>The sale banner only shows when a real discount is active.</strong><span>Set an Offer Price lower than the Base Price on the Product page first &mdash; this banner will not appear otherwise, even if a label and end time are set here.</span></div><div class="admin-fields two"><label>Sale label<input name="saleLabel" value="' + esc(s.saleLabel || '') + '" maxlength="60" data-clean="text"><small class="field-error" data-error-for="saleLabel"></small></label><label>Sale ends at (IST)<input type="datetime-local" name="saleEndsAt" value="' + esc(istDatetimeLocalValue(s.saleEndsAt)) + '"><small class="field-error" data-error-for="saleEndsAt"></small></label></div>';
   const emailStatus = smtpConfigured() ? '<span class="admin-status is-live">Configured</span>' : '<span class="admin-status">Needs setup</span>';
   const emailPanel = `<div id="email-integration" class="admin-integration-row"><div><strong>Status email delivery</strong><p>${smtpConfigured() ? 'SMTP is configured in the server environment.' : 'Customer status emails will not send until SMTP_HOST, SMTP_USER, SMTP_PASSWORD and SMTP_FROM are added in Hostinger.'}</p></div><div class="email-integration-actions">${emailStatus}<label class="test-email-field">Test recipient<input type="email" name="testEmail" value="${esc(s.supportEmail || DEFAULT_ORDER_EMAIL)}" maxlength="254" autocomplete="email"></label><button class="btn ghost" type="submit" formaction="/admin/email/test" formmethod="post" formnovalidate data-loading="Sending...">Send test email</button></div></div>`;
-  const form = `<form class="admin-form" method="post" action="/admin/settings" data-admin-form>${csrfField(req)}${adminFormSection('01', 'Store identity', 'Brand information shown throughout the storefront.', identity)}${adminFormSection('02', 'Customer support', 'Public contact, WhatsApp and address details.', support)}${adminFormSection('03', 'Delivery and payment', 'Delivery promise, free shipping note and checkout availability.', delivery)}${adminFormSection('04', 'Email integration', 'Operational status for customer order emails.', emailPanel)}<div class="admin-save-bar"><div><strong>Store-wide settings</strong><span>These values update customer pages immediately.</span></div><button class="btn primary" data-loading="Saving settings...">Save settings</button></div></form>`;
+  const form = `<form class="admin-form" method="post" action="/admin/settings" data-admin-form>${csrfField(req)}${adminFormSection('01', 'Store identity', 'Brand information shown throughout the storefront.', identity)}${adminFormSection('02', 'Customer support', 'Public contact, WhatsApp and address details.', support)}${adminFormSection('03', 'Delivery and payment', 'Delivery promise, free shipping note and checkout availability.', delivery)}${adminFormSection('04', 'Promotions', 'Sale banner shown across the storefront while a discount is active.', promotions)}${adminFormSection('05', 'Email integration', 'Operational status for customer order emails.', emailPanel)}<div class="admin-save-bar"><div><strong>Store-wide settings</strong><span>These values update customer pages immediately.</span></div><button class="btn primary" data-loading="Saving settings...">Save settings</button></div></form>`;
   res.send(adminPage(req, 'Settings', `${adminHeading('Operations', 'Settings', 'Manage identity, support, delivery and checkout availability.')}${form}`));
 });
 
@@ -2388,7 +2487,9 @@ app.post('/admin/settings', requireAdmin, async (req, res) => {
     const freeShippingMinimum = 0;
     const supportEmail = optionalEmail(req.body.supportEmail, 'Support Email');
     if (!supportEmail) throw new Error('Support Email is required.');
-    Object.assign(db.settings, { storeName, logoPath: validatePublicPath(req.body.logoPath, 'Logo Path'), contactPhone: requirePhone(req.body.contactPhone, 'Contact Phone'), whatsappNumber: requirePhone(req.body.whatsappNumber, 'WhatsApp Number'), supportEmail, storeAddress: requireLength(req.body.storeAddress, 'Store Address', 4, 400), shippingFee: 0, freeShippingEnabled, freeShippingMinimum, codEnabled: Boolean(req.body.codEnabled), deliveryText: requireLength(req.body.deliveryText, 'Delivery Text', 4, 180) });
+    const saleLabel = String(req.body.saleLabel || '').trim().slice(0, 60);
+    const saleEndsAt = parseIstDatetimeLocal(req.body.saleEndsAt, db.settings.saleEndsAt);
+    Object.assign(db.settings, { storeName, logoPath: validatePublicPath(req.body.logoPath, 'Logo Path'), contactPhone: requirePhone(req.body.contactPhone, 'Contact Phone'), whatsappNumber: requirePhone(req.body.whatsappNumber, 'WhatsApp Number'), supportEmail, storeAddress: requireLength(req.body.storeAddress, 'Store Address', 4, 400), shippingFee: 0, freeShippingEnabled, freeShippingMinimum, codEnabled: Boolean(req.body.codEnabled), deliveryText: requireLength(req.body.deliveryText, 'Delivery Text', 4, 180), saleLabel, saleEndsAt });
     await writeDb(db);
     flash(req, 'success', 'Settings updated.');
   } catch (e) {
