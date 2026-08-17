@@ -166,6 +166,15 @@ const CUSTOMER_REVIEWS = [
   { rating: 5, text: 'We all tried the chocolates at home, and everyone liked them. They tasted fresh, the quality was good, and you can feel that extra homemade touch. Really happy with the order.' },
   { rating: 5, text: 'I genuinely liked these chocolates. They were fresh, tasty, and had a really nice homemade quality to them. I wasn’t expecting much initially, but after trying them, I was very satisfied.' }
 ];
+const ICONS = {
+  box: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5 12 3l9 4.5-9 4.5-9-4.5Z"/><path d="M3 7.5v9L12 21l9-4.5v-9"/><path d="M12 12v9"/></svg>',
+  camera: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3.2L8.7 6h6.6L16.8 8H20a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1Z"/><circle cx="12" cy="13.2" r="3.4"/></svg>',
+  sparkle: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2c.7 4 2.7 6 6.7 6.7-4 .7-6 2.7-6.7 6.7-.7-4-2.7-6-6.7-6.7 4-.7 6-2.7 6.7-6.7Z"/><path d="M19 15.5c.35 1.9 1.25 2.8 3.15 3.15-1.9.35-2.8 1.25-3.15 3.15-.35-1.9-1.25-2.8-3.15-3.15 1.9-.35 2.8-1.25 3.15-3.15Z"/></svg>',
+  heart: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20.2s-7.3-4.4-9.7-9C.8 7.7 2.2 4.4 5.5 3.9c2.3-.35 4.4.8 6.5 2.9 2.1-2.1 4.2-3.25 6.5-2.9 3.3.5 4.7 3.8 3.2 7.3-2.4 4.6-9.7 9-9.7 9Z"/></svg>',
+  image: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="15" rx="2"/><circle cx="9" cy="10" r="1.9"/><path d="M21 16.5 15.8 12l-4 3.6-2.3-2-6.5 5.4"/></svg>',
+  wallet: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="6" width="19" height="13" rx="2.2"/><path d="M2.5 10.2h19"/><circle cx="17.2" cy="14.6" r="1.15" fill="currentColor" stroke="none"/></svg>',
+  shield: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.2 19.5 6v6.2c0 4.6-3.2 7.4-7.5 8.6-4.3-1.2-7.5-4-7.5-8.6V6L12 3.2Z"/><path d="m8.7 12.3 2.2 2.2 4.4-4.6"/></svg>'
+};
 const MAX_ORDER_QUANTITY = 20;
 const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
 const PUBLIC_WHATSAPP_NUMBER = String(process.env.PUBLIC_WHATSAPP_NUMBER || '7569907353').trim();
@@ -1606,10 +1615,20 @@ function starGlyphs(rating) {
   return '&#9733;'.repeat(fullStars) + '&#9734;'.repeat(5 - fullStars);
 }
 
+function iconBadge(name, size = '') {
+  return '<span class="icon-badge' + (size ? ' ' + size : '') + '" aria-hidden="true">' + ICONS[name] + '</span>';
+}
+
 function reviewsSection(db) {
   const rating = Number(db.product.ratingValue || 4.7);
   const cards = CUSTOMER_REVIEWS.map(review => '<article class="review-card"><span class="review-stars" aria-hidden="true">' + starGlyphs(review.rating) + '</span><p>&ldquo;' + esc(review.text) + '&rdquo;</p><span class="review-tag">Verified Chocomedley customer</span></article>').join('');
-  return '<section class="reviews-band"><div class="reviews-summary"><div class="reviews-score"><strong>' + esc(rating.toFixed(1)) + '</strong><span class="reviews-stars" aria-hidden="true">' + starGlyphs(rating) + '</span></div><div><p class="eyebrow">Customer rating</p><h3>Loved by our Rakhi gifting customers</h3><p>Real feedback from customers who have ordered the hamper. Photos from customers are coming soon.</p></div></div><div class="reviews-grid">' + cards + '</div><div class="reviews-trust-grid"><div><b>Handmade in small batches</b><small>Fresh for every order, not mass-produced</small></div><div><b>Personalised for the receiver</b><small>Your photo, printed on the chocolate</small></div><div><b>Pay on delivery</b><small>No online payment required</small></div></div></section>';
+  const trustItems = [
+    { icon: 'heart', title: 'Handmade in small batches', copy: 'Fresh for every order, not mass-produced' },
+    { icon: 'image', title: 'Personalised for the receiver', copy: 'Your photo, printed on the chocolate' },
+    { icon: 'wallet', title: 'Pay on delivery', copy: 'No online payment required' }
+  ].map(item => '<div>' + iconBadge(item.icon, 'sm') + '<div><b>' + esc(item.title) + '</b><small>' + esc(item.copy) + '</small></div></div>').join('');
+  const productPhoto = (db.product.galleryPaths || [])[2] || db.product.imagePath;
+  return '<section class="reviews-band"><div class="reviews-summary">' + (productPhoto ? '<img class="reviews-summary-photo" src="' + esc(productPhoto) + '" alt="' + esc(db.product.name) + '" loading="lazy">' : '') + '<div class="reviews-score"><strong>' + esc(rating.toFixed(1)) + '</strong><span class="reviews-stars" aria-hidden="true">' + starGlyphs(rating) + '</span></div><div class="reviews-summary-copy"><p class="eyebrow">Customer rating</p><h3>Loved by our Rakhi gifting customers</h3><p>Real feedback from customers who have ordered the hamper. Photos from customers are coming soon.</p></div></div><div class="reviews-grid">' + cards + '</div><div class="reviews-trust-grid">' + trustItems + '</div></section>';
 }
 
 function closingCtaSection(db) {
@@ -1627,7 +1646,12 @@ function bottomContent(db) {
     const [q, ...rest] = line.split('|');
     return q && rest.length ? `<details><summary>${esc(q)}</summary><p>${esc(rest.join('|'))}</p></details>` : '';
   }).join('');
-  return `<section class="trust-band"><div><span>01</span><strong>Choose your hamper</strong><small>Select quantity and add-ons</small></div><div><span>02</span><strong>Add your photos</strong><small>Upload one design per hamper</small></div><div><span>03</span><strong>We make it personal</strong><small>Printed, packed and dispatched</small></div></section>${reviewsSection(db)}<section id="details" class="content-bands"><header class="section-heading"><p class="eyebrow">The Chocomedley difference</p><h2>A gift that feels considered from the first look.</h2><p>Every hamper is prepared for the person receiving it, with handmade chocolate, a personal photograph and presentation worthy of the occasion.</p></header><div class="detail-grid"><article><span>01</span><p class="eyebrow">Product details</p><h3>Made to feel personal.</h3><p>${esc(db.product.details)}</p></article><article><span>02</span><p class="eyebrow">Ingredients</p><h3>Rich, handmade, carefully packed.</h3><p>${esc(db.product.ingredients)}</p></article><article><span>03</span><p class="eyebrow">Care</p><h3>Keep every bite fresh and delicious.</h3><p>${esc(db.product.care)}</p></article></div><div class="faq-block"><div class="faq-heading"><div><p class="eyebrow">Questions, answered</p><h2>Before you order</h2></div><p>Everything you need to know about personalisation, delivery and storage.</p></div>${faqs}</div></section>${closingCtaSection(db)}`;
+  const steps = [
+    { icon: 'box', label: 'Step 01', title: 'Choose your hamper', copy: 'Select quantity and add-ons' },
+    { icon: 'camera', label: 'Step 02', title: 'Add your photos', copy: 'Upload one design per hamper' },
+    { icon: 'sparkle', label: 'Step 03', title: 'We make it personal', copy: 'Printed, packed and dispatched' }
+  ].map(step => '<div>' + iconBadge(step.icon) + '<div><b class="step-tag">' + esc(step.label) + '</b><strong>' + esc(step.title) + '</strong><small>' + esc(step.copy) + '</small></div></div>').join('');
+  return `<section class="trust-band">${steps}</section>${reviewsSection(db)}<section id="details" class="content-bands"><header class="section-heading"><p class="eyebrow">The Chocomedley difference</p><h2>A gift that feels considered from the first look.</h2><p>Every hamper is prepared for the person receiving it, with handmade chocolate, a personal photograph and presentation worthy of the occasion.</p></header><div class="detail-grid"><article><span>01</span><p class="eyebrow">Product details</p><h3>Made to feel personal.</h3><p>${esc(db.product.details)}</p></article><article><span>02</span><p class="eyebrow">Ingredients</p><h3>Rich, handmade, carefully packed.</h3><p>${esc(db.product.ingredients)}</p></article><article><span>03</span><p class="eyebrow">Care</p><h3>Keep every bite fresh and delicious.</h3><p>${esc(db.product.care)}</p></article></div><div class="faq-block"><div class="faq-heading"><div><p class="eyebrow">Questions, answered</p><h2>Before you order</h2></div><p>Everything you need to know about personalisation, delivery and storage.</p></div>${faqs}</div></section>${closingCtaSection(db)}`;
 }
 
 function selectedCustomizations(req, files, db) {
