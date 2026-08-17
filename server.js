@@ -132,7 +132,7 @@ const PRODUCT_IMAGES = [
   '/img/4.jpeg',
   '/img/5.jpeg'
 ];
-const ASSET_VERSION = 'launch-20260814-04';
+const ASSET_VERSION = 'launch-20260817-01';
 const META_PIXEL_ID = '28093024957051220';
 const META_PIXEL_HTML = `<script>
 !function(f,b,e,v,n,t,s)
@@ -1641,8 +1641,6 @@ function closingCtaSection(db) {
   const stock = stockStatus(db.product);
   const gallery = [db.product.imagePath, ...(db.product.galleryPaths || [])].filter(Boolean).filter((value, index, arr) => arr.indexOf(value) === index);
   const feature = gallery[1] || gallery[0];
-  const strip = [gallery[2], gallery[4], gallery[0]].filter(Boolean).slice(0, 2);
-  const stripHtml = strip.map((src, index) => '<img src="' + esc(src) + '" alt="' + esc(db.product.name) + ' detail ' + (index + 1) + '" loading="lazy">').join('');
   const hasVideo = fs.existsSync(PRODUCT_VIDEO_PATH);
   const featureHtml = hasVideo
     ? '<div class="closing-cta-feature-wrap" data-video-card><video class="closing-cta-feature" poster="' + esc(feature) + '" preload="metadata" playsinline data-video><source src="' + esc(PRODUCT_VIDEO_URL) + '" type="video/mp4"></video><button type="button" class="closing-cta-play" data-video-play aria-label="Play video"><span>' + ICONS.play + '</span></button></div>'
@@ -1652,7 +1650,7 @@ function closingCtaSection(db) {
     { icon: 'truck', title: 'Free shipping', copy: 'Included in the price' },
     { icon: 'wallet', title: 'Cash on delivery', copy: 'Pay when it arrives' }
   ].map(chip => '<div>' + iconBadge(chip.icon, 'sm') + '<div><b>' + esc(chip.title) + '</b><small>' + esc(chip.copy) + '</small></div></div>').join('');
-  return '<section class="closing-cta"><div class="closing-cta-media">' + featureHtml + '<div class="closing-cta-strip">' + stripHtml + '</div></div><div class="closing-cta-copy"><p class="eyebrow">Ready when you are</p><h2>A hamper that says more than words this Rakhi.</h2><p>Handmade chocolate, personalised with your own photo, and packed to arrive looking exactly as considered as it felt to choose. Your sibling opens a box made for them, not off a shelf.</p><a class="btn primary large" href="/#buy">Order your hamper now</a><p class="closing-cta-note">' + (stock.left > 0 ? 'Only <b>' + stock.left + '</b> left in today&rsquo;s batch &middot; ' : '') + 'Get it by ' + esc(eta.startLabel) + ' &middot; Cash on delivery</p><div class="closing-cta-chips">' + chips + '</div></div></section>';
+  return '<section class="closing-cta"><div class="closing-cta-media">' + featureHtml + '</div><div class="closing-cta-copy"><p class="eyebrow">Ready when you are</p><p class="closing-cta-emotion">She won&rsquo;t just taste the chocolate &mdash; she&rsquo;ll feel the thought behind it.</p><h2>A hamper that says more than words this Rakhi.</h2><p>Handmade chocolate, personalised with your own photo, and packed to arrive looking exactly as considered as it felt to choose. Your sibling opens a box made for them, not off a shelf.</p><a class="btn primary large" href="/#buy">Order your hamper now</a><p class="closing-cta-note">' + (stock.left > 0 ? 'Only <b>' + stock.left + '</b> left in today&rsquo;s batch &middot; ' : '') + 'Get it by ' + esc(eta.startLabel) + ' &middot; Cash on delivery</p><div class="closing-cta-chips">' + chips + '</div></div></section>';
 }
 
 function bottomContent(db) {
