@@ -331,6 +331,21 @@ function initSaleCountdown() {
   window.setInterval(tick, 1000);
 }
 
+function initVideoCards() {
+  document.querySelectorAll('[data-video-card]').forEach(card => {
+    const video = card.querySelector('[data-video]');
+    const playBtn = card.querySelector('[data-video-play]');
+    if (!video || !playBtn) return;
+    playBtn.addEventListener('click', () => {
+      video.setAttribute('controls', '');
+      video.play();
+      card.classList.add('is-playing');
+    });
+    video.addEventListener('pause', () => card.classList.remove('is-playing'));
+    video.addEventListener('ended', () => { card.classList.remove('is-playing'); video.removeAttribute('controls'); });
+  });
+}
+
 const adminRules = {
   name: input => /^[\p{L}][\p{L}\s]{1,79}$/u.test(input.value.trim()) ? '' : 'Use letters only.',
   text: input => !input.value.trim() || input.value.trim().length >= 4 ? '' : 'Enter at least 4 characters.',
@@ -392,4 +407,5 @@ document.addEventListener('DOMContentLoaded', () => {
   initAdminValidation();
   initStoreActivity();
   initSaleCountdown();
+  initVideoCards();
 });

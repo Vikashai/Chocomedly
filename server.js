@@ -173,8 +173,12 @@ const ICONS = {
   heart: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20.2s-7.3-4.4-9.7-9C.8 7.7 2.2 4.4 5.5 3.9c2.3-.35 4.4.8 6.5 2.9 2.1-2.1 4.2-3.25 6.5-2.9 3.3.5 4.7 3.8 3.2 7.3-2.4 4.6-9.7 9-9.7 9Z"/></svg>',
   image: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="15" rx="2"/><circle cx="9" cy="10" r="1.9"/><path d="M21 16.5 15.8 12l-4 3.6-2.3-2-6.5 5.4"/></svg>',
   wallet: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="6" width="19" height="13" rx="2.2"/><path d="M2.5 10.2h19"/><circle cx="17.2" cy="14.6" r="1.15" fill="currentColor" stroke="none"/></svg>',
-  shield: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.2 19.5 6v6.2c0 4.6-3.2 7.4-7.5 8.6-4.3-1.2-7.5-4-7.5-8.6V6L12 3.2Z"/><path d="m8.7 12.3 2.2 2.2 4.4-4.6"/></svg>'
+  shield: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.2 19.5 6v6.2c0 4.6-3.2 7.4-7.5 8.6-4.3-1.2-7.5-4-7.5-8.6V6L12 3.2Z"/><path d="m8.7 12.3 2.2 2.2 4.4-4.6"/></svg>',
+  play: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5-11-6.5Z"/></svg>',
+  truck: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6.5h11v10h-11z"/><path d="M13.5 10h4l3 3v3.5h-7z"/><circle cx="6.5" cy="18" r="1.6"/><circle cx="17" cy="18" r="1.6"/></svg>'
 };
+const PRODUCT_VIDEO_PATH = path.join(ROOT, 'public', 'video', 'story.mp4');
+const PRODUCT_VIDEO_URL = '/video/story.mp4';
 const MAX_ORDER_QUANTITY = 20;
 const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
 const PUBLIC_WHATSAPP_NUMBER = String(process.env.PUBLIC_WHATSAPP_NUMBER || '7569907353').trim();
@@ -267,6 +271,7 @@ const staticOptions = {
 };
 app.use('/assets', express.static(path.join(ROOT, 'public', 'assets'), staticOptions));
 app.use('/img', express.static(path.join(ROOT, 'public', 'img'), staticOptions));
+app.use('/video', express.static(path.join(ROOT, 'public', 'video'), staticOptions));
 app.use('/catalog', express.static(PRODUCT_UPLOAD_DIR, staticOptions));
 if (process.env.NODE_ENV === 'production' && (!process.env.SESSION_SECRET || isPlaceholderValue(process.env.SESSION_SECRET))) {
   console.warn('[boot] SESSION_SECRET is missing or still a placeholder. Serving diagnostics only until a real SESSION_SECRET is set in Hostinger.');
@@ -1638,7 +1643,16 @@ function closingCtaSection(db) {
   const feature = gallery[1] || gallery[0];
   const strip = [gallery[2], gallery[4], gallery[0]].filter(Boolean).slice(0, 2);
   const stripHtml = strip.map((src, index) => '<img src="' + esc(src) + '" alt="' + esc(db.product.name) + ' detail ' + (index + 1) + '" loading="lazy">').join('');
-  return '<section class="closing-cta"><div class="closing-cta-media"><img class="closing-cta-feature" src="' + esc(feature) + '" alt="' + esc(db.product.name) + ' being gifted" loading="lazy"><div class="closing-cta-strip">' + stripHtml + '</div></div><div class="closing-cta-copy"><p class="eyebrow">Ready when you are</p><h2>A hamper that says more than words this Rakhi.</h2><p>Handmade chocolate, personalised with your own photo, and packed to arrive looking exactly as considered as it felt to choose. Your sibling opens a box made for them, not off a shelf.</p><a class="btn primary large" href="/#buy">Order your hamper now</a><p class="closing-cta-note">' + (stock.left > 0 ? 'Only <b>' + stock.left + '</b> left in today&rsquo;s batch &middot; ' : '') + 'Get it by ' + esc(eta.startLabel) + ' &middot; Cash on delivery</p></div></section>';
+  const hasVideo = fs.existsSync(PRODUCT_VIDEO_PATH);
+  const featureHtml = hasVideo
+    ? '<div class="closing-cta-feature-wrap" data-video-card><video class="closing-cta-feature" poster="' + esc(feature) + '" preload="metadata" playsinline data-video><source src="' + esc(PRODUCT_VIDEO_URL) + '" type="video/mp4"></video><button type="button" class="closing-cta-play" data-video-play aria-label="Play video"><span>' + ICONS.play + '</span></button></div>'
+    : '<img class="closing-cta-feature" src="' + esc(feature) + '" alt="' + esc(db.product.name) + ' being gifted" loading="lazy">';
+  const chips = [
+    { icon: 'box', title: '9 handmade pieces', copy: 'In every hamper' },
+    { icon: 'truck', title: 'Free shipping', copy: 'Included in the price' },
+    { icon: 'wallet', title: 'Cash on delivery', copy: 'Pay when it arrives' }
+  ].map(chip => '<div>' + iconBadge(chip.icon, 'sm') + '<div><b>' + esc(chip.title) + '</b><small>' + esc(chip.copy) + '</small></div></div>').join('');
+  return '<section class="closing-cta"><div class="closing-cta-media">' + featureHtml + '<div class="closing-cta-strip">' + stripHtml + '</div></div><div class="closing-cta-copy"><p class="eyebrow">Ready when you are</p><h2>A hamper that says more than words this Rakhi.</h2><p>Handmade chocolate, personalised with your own photo, and packed to arrive looking exactly as considered as it felt to choose. Your sibling opens a box made for them, not off a shelf.</p><a class="btn primary large" href="/#buy">Order your hamper now</a><p class="closing-cta-note">' + (stock.left > 0 ? 'Only <b>' + stock.left + '</b> left in today&rsquo;s batch &middot; ' : '') + 'Get it by ' + esc(eta.startLabel) + ' &middot; Cash on delivery</p><div class="closing-cta-chips">' + chips + '</div></div></section>';
 }
 
 function bottomContent(db) {
@@ -1651,7 +1665,7 @@ function bottomContent(db) {
     { icon: 'camera', label: 'Step 02', title: 'Add your photos', copy: 'Upload one design per hamper' },
     { icon: 'sparkle', label: 'Step 03', title: 'We make it personal', copy: 'Printed, packed and dispatched' }
   ].map(step => '<div>' + iconBadge(step.icon) + '<div><b class="step-tag">' + esc(step.label) + '</b><strong>' + esc(step.title) + '</strong><small>' + esc(step.copy) + '</small></div></div>').join('');
-  return `<section class="trust-band">${steps}</section>${reviewsSection(db)}<section id="details" class="content-bands"><header class="section-heading"><p class="eyebrow">The Chocomedley difference</p><h2>A gift that feels considered from the first look.</h2><p>Every hamper is prepared for the person receiving it, with handmade chocolate, a personal photograph and presentation worthy of the occasion.</p></header><div class="detail-grid"><article><span>01</span><p class="eyebrow">Product details</p><h3>Made to feel personal.</h3><p>${esc(db.product.details)}</p></article><article><span>02</span><p class="eyebrow">Ingredients</p><h3>Rich, handmade, carefully packed.</h3><p>${esc(db.product.ingredients)}</p></article><article><span>03</span><p class="eyebrow">Care</p><h3>Keep every bite fresh and delicious.</h3><p>${esc(db.product.care)}</p></article></div><div class="faq-block"><div class="faq-heading"><div><p class="eyebrow">Questions, answered</p><h2>Before you order</h2></div><p>Everything you need to know about personalisation, delivery and storage.</p></div>${faqs}</div></section>${closingCtaSection(db)}`;
+  return `<section class="trust-band">${steps}</section>${reviewsSection(db)}<section id="details" class="content-bands"><header class="section-heading"><p class="eyebrow">The Chocomedley difference</p><h2>A gift that feels considered from the first look.</h2><p>Every hamper is prepared for the person receiving it, with handmade chocolate, a personal photograph and presentation worthy of the occasion.</p></header><div class="detail-grid"><article><span>01</span><p class="eyebrow">Product details</p><h3>Made to feel personal.</h3><p>${esc(db.product.details)}</p></article><article><span>02</span><p class="eyebrow">Ingredients</p><h3>Rich, handmade, carefully packed.</h3><p>${esc(db.product.ingredients)}</p></article><article><span>03</span><p class="eyebrow">Care</p><h3>Keep every bite fresh and delicious.</h3><p>${esc(db.product.care)}</p></article></div></section>${closingCtaSection(db)}<section class="content-bands faq-section"><div class="faq-block"><div class="faq-heading"><div><p class="eyebrow">Questions, answered</p><h2>Before you order</h2></div><p>Everything you need to know about personalisation, delivery and storage.</p></div>${faqs}</div></section>`;
 }
 
 function selectedCustomizations(req, files, db) {
