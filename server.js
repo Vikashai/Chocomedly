@@ -865,6 +865,11 @@ function readDb() {
     data.product.offerPrice = '';
     changed = true;
   }
+  if (currentBasePrice === 1000 && !data.product.offerPrice) {
+    data.product.basePrice = 2899;
+    data.product.offerPrice = 999;
+    changed = true;
+  }
   if (ensureDemoAdmin(data)) changed = true;
   if (ensureRecoveryAdmin(data)) changed = true;
   if (PUBLIC_WHATSAPP_NUMBER && data.settings?.whatsappNumber !== PUBLIC_WHATSAPP_NUMBER) {
