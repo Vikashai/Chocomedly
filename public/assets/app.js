@@ -346,6 +346,31 @@ function initVideoCards() {
   });
 }
 
+function initVideoBubble() {
+  const bubble = document.querySelector('[data-video-bubble]');
+  if (!bubble) return;
+  const closeBtn = bubble.querySelector('[data-video-bubble-close]');
+  const frame = bubble.querySelector('[data-bubble-frame]');
+  const video = bubble.querySelector('[data-bubble-video]');
+  const playBtn = bubble.querySelector('[data-bubble-play]');
+  let dismissed = false;
+  try { dismissed = sessionStorage.getItem('videoBubbleDismissed') === '1'; } catch (_) { /* storage unavailable */ }
+  if (dismissed) return;
+  window.setTimeout(() => bubble.classList.add('is-visible'), 1200);
+  closeBtn.addEventListener('click', event => {
+    event.stopPropagation();
+    bubble.classList.remove('is-visible');
+    if (video) video.pause();
+    try { sessionStorage.setItem('videoBubbleDismissed', '1'); } catch (_) { /* storage unavailable */ }
+  });
+  if (frame && video && playBtn) {
+    frame.addEventListener('click', () => {
+      if (video.paused) { video.play(); frame.classList.add('is-playing'); }
+      else { video.pause(); frame.classList.remove('is-playing'); }
+    });
+  }
+}
+
 const adminRules = {
   name: input => /^[\p{L}][\p{L}\s]{1,79}$/u.test(input.value.trim()) ? '' : 'Use letters only.',
   text: input => !input.value.trim() || input.value.trim().length >= 4 ? '' : 'Enter at least 4 characters.',
@@ -408,4 +433,5 @@ document.addEventListener('DOMContentLoaded', () => {
   initStoreActivity();
   initSaleCountdown();
   initVideoCards();
+  initVideoBubble();
 });
