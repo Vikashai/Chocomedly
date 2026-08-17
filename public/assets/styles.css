@@ -358,9 +358,14 @@ th { background: #fff2d8; color: var(--plum); font-size: 13px; }
 .video-bubble-play svg { width: 17px; height: 17px; margin-left: 2px; }
 .video-bubble-frame.is-playing .video-bubble-play { opacity: 0; pointer-events: none; }
 .video-bubble-close { position: absolute; top: -9px; right: -9px; z-index: 2; width: 25px; height: 25px; border: 0; border-radius: 50%; background: #fff; color: var(--plum); box-shadow: 0 8px 18px rgba(37,17,40,.24); font-size: 15px; line-height: 1; cursor: pointer; display: grid; place-items: center; }
+.video-bubble-mute { position: absolute; right: 8px; bottom: 8px; z-index: 2; width: 26px; height: 26px; border: 0; border-radius: 50%; background: rgba(20,10,22,.55); color: #fff; cursor: pointer; display: grid; place-items: center; backdrop-filter: blur(2px); }
+.video-bubble-mute svg { width: 13px; height: 13px; }
+.video-bubble-mute [data-icon-unmuted].is-hidden, .video-bubble-mute [data-icon-muted].is-hidden { display: none; }
 @media (max-width: 900px) {
   .video-bubble { width: 110px; right: 14px; bottom: 92px; }
   .video-bubble-close { width: 22px; height: 22px; font-size: 13px; top: -8px; right: -8px; }
+  .video-bubble-mute { width: 22px; height: 22px; right: 6px; bottom: 6px; }
+  .video-bubble-mute svg { width: 11px; height: 11px; }
 }
 
 @media (max-width: 900px) {

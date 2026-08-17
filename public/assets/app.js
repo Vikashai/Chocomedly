@@ -353,6 +353,7 @@ function initVideoBubble() {
   const frame = bubble.querySelector('[data-bubble-frame]');
   const video = bubble.querySelector('[data-bubble-video]');
   const playBtn = bubble.querySelector('[data-bubble-play]');
+  const muteBtn = bubble.querySelector('[data-bubble-mute]');
   let dismissed = false;
   try { dismissed = sessionStorage.getItem('videoBubbleDismissed') === '1'; } catch (_) { /* storage unavailable */ }
   if (dismissed) return;
@@ -367,6 +368,17 @@ function initVideoBubble() {
     frame.addEventListener('click', () => {
       if (video.paused) { video.play(); frame.classList.add('is-playing'); }
       else { video.pause(); frame.classList.remove('is-playing'); }
+    });
+  }
+  if (muteBtn && video) {
+    const mutedIcon = muteBtn.querySelector('[data-icon-muted]');
+    const unmutedIcon = muteBtn.querySelector('[data-icon-unmuted]');
+    muteBtn.addEventListener('click', event => {
+      event.stopPropagation();
+      video.muted = !video.muted;
+      mutedIcon.classList.toggle('is-hidden', !video.muted);
+      unmutedIcon.classList.toggle('is-hidden', video.muted);
+      muteBtn.setAttribute('aria-label', video.muted ? 'Turn sound on' : 'Turn sound off');
     });
   }
 }

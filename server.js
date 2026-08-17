@@ -132,7 +132,7 @@ const PRODUCT_IMAGES = [
   '/img/4.jpeg',
   '/img/5.jpeg'
 ];
-const ASSET_VERSION = 'launch-20260817-02';
+const ASSET_VERSION = 'launch-20260817-03';
 const META_PIXEL_ID = '28093024957051220';
 const META_PIXEL_HTML = `<script>
 !function(f,b,e,v,n,t,s)
@@ -175,7 +175,9 @@ const ICONS = {
   wallet: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="6" width="19" height="13" rx="2.2"/><path d="M2.5 10.2h19"/><circle cx="17.2" cy="14.6" r="1.15" fill="currentColor" stroke="none"/></svg>',
   shield: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.2 19.5 6v6.2c0 4.6-3.2 7.4-7.5 8.6-4.3-1.2-7.5-4-7.5-8.6V6L12 3.2Z"/><path d="m8.7 12.3 2.2 2.2 4.4-4.6"/></svg>',
   play: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5-11-6.5Z"/></svg>',
-  truck: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6.5h11v10h-11z"/><path d="M13.5 10h4l3 3v3.5h-7z"/><circle cx="6.5" cy="18" r="1.6"/><circle cx="17" cy="18" r="1.6"/></svg>'
+  truck: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6.5h11v10h-11z"/><path d="M13.5 10h4l3 3v3.5h-7z"/><circle cx="6.5" cy="18" r="1.6"/><circle cx="17" cy="18" r="1.6"/></svg>',
+  volumeOff: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5h3.6L13 5.8v12.4L7.6 14.5H4Z"/><path d="m16.5 9.5 4.5 5M21 9.5l-4.5 5"/></svg>',
+  volumeOn: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5h3.6L13 5.8v12.4L7.6 14.5H4Z"/><path d="M16.3 9c1.6 1.7 1.6 4.3 0 6"/><path d="M18.7 6.6c2.9 2.9 2.9 7.9 0 10.8"/></svg>'
 };
 const PRODUCT_VIDEO_PATH = path.join(ROOT, 'public', 'video', 'story.mp4');
 const PRODUCT_VIDEO_URL = '/video/story.mp4';
@@ -1612,7 +1614,8 @@ function videoBubble(db) {
   if (!fs.existsSync(PRODUCT_VIDEO_PATH)) return '';
   const gallery = [db.product.imagePath, ...(db.product.galleryPaths || [])].filter(Boolean).filter((value, index, arr) => arr.indexOf(value) === index);
   const poster = gallery[1] || gallery[0];
-  return '<div class="video-bubble" data-video-bubble><button type="button" class="video-bubble-close" data-video-bubble-close aria-label="Close video">&times;</button><div class="video-bubble-frame" data-bubble-frame><video class="video-bubble-media" poster="' + esc(poster) + '" preload="none" playsinline muted loop data-bubble-video><source src="' + esc(PRODUCT_VIDEO_URL) + '" type="video/mp4"></video><button type="button" class="video-bubble-play" data-bubble-play aria-label="Play video preview"><span>' + ICONS.play + '</span></button></div></div>';
+  const muteBtn = '<button type="button" class="video-bubble-mute" data-bubble-mute aria-label="Turn sound on"><span data-icon-muted>' + ICONS.volumeOff + '</span><span data-icon-unmuted class="is-hidden">' + ICONS.volumeOn + '</span></button>';
+  return '<div class="video-bubble" data-video-bubble><button type="button" class="video-bubble-close" data-video-bubble-close aria-label="Close video">&times;</button><div class="video-bubble-frame" data-bubble-frame><video class="video-bubble-media" poster="' + esc(poster) + '" preload="none" playsinline muted loop data-bubble-video><source src="' + esc(PRODUCT_VIDEO_URL) + '" type="video/mp4"></video><button type="button" class="video-bubble-play" data-bubble-play aria-label="Play video preview"><span>' + ICONS.play + '</span></button>' + muteBtn + '</div></div>';
 }
 
 function cartDrawer(req, open = false) {
